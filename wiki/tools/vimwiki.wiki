@@ -1,13 +1,15 @@
 %title Vimwiki使用
+%template code
 
 ==下载及安装==
 	# 从<a href="http://code.google.com/p/vimwiki/">vimwiki官网</a>中或<a href="https://github.com/jiangchengxu/jiangcx-wiki/blob/master/vim-scripts/vimwiki-2-1.vba#">这里(版本是vimwiki 2.1)</a>下载
 	# 将下载的vimwiki-2-1.vba.gz用vim打开（不需要解压）
-	# 运行:so %，安装完毕 
+	# 运行<code>:so %</code>，安装完毕 
 
 ----
 ==使用==
-	=== 1. 在.vimrc中添加： ===
+
+=== 1. 在.vimrc中添加： === 
 	
 		{{{class="brush: bash"
 			set nocompatible
@@ -22,29 +24,30 @@
 	
 			" 创建站点
 			let blog = {}
-		    let blog.path          = '~/mysite/wiki/'
-			let blog.path_html     = '~/mysite/html/'
-			let blog.template_path = '~/mysite/templates/'
-			let blog.template_default  = 'site'
-			let blog.template_ext      = '.html'
-			let blog.auto_export       = 1
+		    let blog.path          = '~/mysite/wiki/' 		"设置wiki存放文件的根目录
+			let blog.path_html     = '~/mysite/html/'		"设置wiki生成的html文件所在目录,%root_path%指向该目录
+			let blog.template_path = '~/mysite/templates/'	"设置wiki模版文件目录
+			let blog.template_default  = 'site'				"设置默认模版文件名
+			let blog.template_ext      = '.html'			"设置默认模版后缀名
+			let blog.auto_export       = 1					"设置是否自动导出
 			
-			"这里定义了vimwiki文件存放目录，根目录是~/mysite
-	
 			" 加载站点
 			let g:vimwiki_list = [blog]
 		}}}
 	
-	 === 2. 使用<code>SyntaxHighlighter</code>添加代码高亮： ===
-			- 在定义的vimwiki根目录(这里是<code>~/mysite</code>)中，创建目录<code>public/SyntaxHighlighter</code>
+=== 2. 使用<code>SyntaxHighlighter</code>添加代码高亮： ===
+	 
+			- 在定义的vimwiki根目录(这里是`~/mysite`)中，创建目录`public/SyntaxHighlighter</`>
 			-	从<a href="">官网</a>下载SyntaxHighlighter，解压后，将其中的<code>scripts</code>和<code>styles</code>文件夹复制到上面创建的<code>SyntaxHighlighter</code>文件夹中，注意记住存放的位置
 			- 在根目录中，创建一个<code>templates</code>目录,用于存放模版
-			- 在template中创建一个默认模版，这里是<code>site.html</code>,该文件的内容可参考：
+			- 在template中创建一个默认模版，这里是`site.html`,该文件的内容可参考：
 			{{{class="brush: html"
 				  <!DOCTYPE HTML> 
 					  <html>
 					  <head>
-
+                      <!-- 加载自定义css文件 -->
+					  <link rel="Stylesheet" type="text/css" href="%root_path%../public/style.css" />
+					  
 					  <title>%title%</title><!--引入wiki的title,在wiki文件中通过%title指定-->
 
 					  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
@@ -77,19 +80,23 @@
 					<!-- 这里一定要注意路径及大小写，如果代码没有高亮效果，很有可能是这方面写的有问题-->
 					<!-- %root_path%变量指向的是html文件生成的目录，可以在vimrc中通过vimwiki的html_path属性设置 -->
 			}}}
+            
+            vimwiki在新版本上引入了Autoloade机制，加载script的代码也可以这样写：
+			
 			- 之后，可以在代码段中使用相应的刷子高亮代码块了，如：
 			{{{class="brush: c"
-                  #include <stdio.h>
+				#include <stdio.h>
 
-				  int main (int argc, char* argv[])
-				  {
-					  printf("Hello, World\n");
+				int main (int argc, char* argv[])
+				{
+					printf("Hello, World\n");
 
-					  return 0;
-				  }
+					return 0;
+				}
 			}}}
 		
 ----
 
-	=== 3. Vimwiki基本操作： ===
-	=== 4. Vimwiki使用技巧： ===
+=== 3. Vimwiki基本操作： ===
+=== 4. Vimwiki使用技巧： ===
+=== 5. 参考文件 ===

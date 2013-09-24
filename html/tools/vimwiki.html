@@ -6,8 +6,13 @@
         <!-- SyntaxHighlighter -->
 	<script src="../../public/SyntaxHighlighter/scripts/shCore.js"></script>
 	<link type="text/css" rel="stylesheet" href="../../public/SyntaxHighlighter/styles/shCore.css"/>
-	<link type="text/css" rel="stylesheet" href="../../public/SyntaxHighlighter/styles/shThemeMidnight.css"/>
+	<link type="text/css" rel="stylesheet" href="../../public/SyntaxHighlighter/styles/shThemeDefault.css"/>
 	<script src="../../public/SyntaxHighlighter/scripts/shAutoloader.js" type="text/javascript"></script>
+	<script src="../../public/SyntaxHighlighter/scripts/shBrushAll.js" type="text/javascript"></script>
+	<script>
+	    SyntaxHighlighter.config.clipboardSwf = '../../public/SyntaxHighlighter/scripts/clipboard.swf';
+	    SyntaxHighlighter.all();
+	</script>
     </head>
     <body>
         <center style="font-family: 'Microsoft Yahei', sans-serif; font-size: 1.80em;
@@ -20,9 +25,116 @@
 <h2 id="toc_0.1">下载及安装</h2>
 <ol>
 <li>
-从vimwiki官网
+从<a href="http://code.google.com/p/vimwiki/">vimwiki官网</a>中或<a href="https://github.com/jiangchengxu/jiangcx-wiki/blob/master/vim-scripts/vimwiki-2-1.vba#">这里(版本是vimwiki 2.1)</a>下载
+
+<li>
+将下载的vimwiki-2-1.vba.gz用vim打开（不需要解压）
+
+<li>
+运行:so %，安装完毕 
 
 </ol>
+
+<hr />
+<h2 id="toc_0.2">使用</h2>
+<h3 id="toc_0.2.1" class="justcenter">1. 在.vimrc中添加：</h3>
+	
+<pre class="brush: bash">
+			set nocompatible
+			filetype plugin on
+			syntax on
+			
+	
+			let g:vimwiki_use_mouse=1         " 使用鼠标映射
+	
+			" 声明可以在wiki里面使用的HTML标签
+			let g:vimwiki_valid_html_tags = 'a,img,b,i,s,u,sub,sup,br,hr,div,del,code,red,center,left,right,h1,h2,h3,h4,h5,h6,pre,script,style'
+	
+			" 创建站点
+			let blog = {}
+		    let blog.path          = '~/mysite/wiki/'
+			let blog.path_html     = '~/mysite/html/'
+			let blog.template_path = '~/mysite/templates/'
+			let blog.template_default  = 'site'
+			let blog.template_ext      = '.html'
+			let blog.auto_export       = 1
+			
+			"这里定义了vimwiki文件存放目录，根目录是~/mysite
+	
+			" 加载站点
+			let g:vimwiki_list = [blog]
+</pre>
+	
+<h3 id="toc_0.2.2" class="justcenter">2. 使用<code>SyntaxHighlighter</code>添加代码高亮：</h3>
+<ul>
+<li>
+在定义的vimwiki根目录(这里是<code>~/mysite</code>)中，创建目录<code>public/SyntaxHighlighter</code>
+
+<li>
+从<a href="">官网</a>下载SyntaxHighlighter，解压后，将其中的<code>scripts</code>和<code>styles</code>文件夹复制到上面创建的<code>SyntaxHighlighter</code>文件夹中，注意记住存放的位置
+
+<li>
+在根目录中，创建一个<code>templates</code>目录,用于存放模版
+
+<li>
+在template中创建一个默认模版，这里是<code>site.html</code>,该文件的内容可参考：
+<pre class="brush: html">
+				  &lt;!DOCTYPE HTML&gt; 
+					  &lt;html&gt;
+					  &lt;head&gt;
+
+					  &lt;title&gt;%title%&lt;/title&gt;&lt;!--引入wiki的title,在wiki文件中通过%title指定--&gt;
+
+					  &lt;meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /&gt;
+
+					  &lt;!-- SyntaxHighlighter --&gt;
+					  &lt;!-- 加载核心文件	--&gt;
+					  &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shCore.js"&gt;&lt;/script&gt;
+                      &lt;!-- 加载代码段颜色主题 --&gt;
+					  &lt;link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shThemeDefault.css"/&gt;
+
+					  &lt;!-- 加载Autoloader script文件, 不使用Autoloader机制的话，可以不引入--&gt;
+					  &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shAutoloader.js" type="text/javascript"&gt;&lt;/script&gt;
+					  &lt;!-- 加载所有的代码格式刷--&gt;
+					  &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shBrushAll.js" type="text/javascript"&gt;&lt;/script&gt;
+
+					  &lt;script&gt;
+
+						  SyntaxHighlighter.config.clipboardSwf = '%root_path%../public/SyntaxHighlighter/scripts/clipboard.swf';
+	                      SyntaxHighlighter.all();
+
+                      &lt;/script&gt;
+                      &lt;!-- 加载格式化代码的代码必须写在&lt;/header&gt;标签前面, 否则代码没有高亮效果--&gt;
+                      &lt;/header&gt;
+                      &lt;body&gt;
+					  %content% &lt;!--引入wiki的内容--&gt;
+					  &lt;/body&gt;
+
+                      &lt;/html&gt;
+                      
+					&lt;!-- 这里一定要注意路径及大小写，如果代码没有高亮效果，很有可能是这方面写的有问题--&gt;
+					&lt;!-- %root_path%变量指向的是html文件生成的目录，可以在vimrc中通过vimwiki的html_path属性设置 --&gt;
+</pre>
+
+<li>
+之后，可以在代码段中使用相应的刷子高亮代码块了，如：
+<pre class="brush: c">
+                  #include &lt;stdio.h&gt;
+
+				  int main (int argc, char* argv[])
+				  {
+					  printf("Hello, World\n");
+
+					  return 0;
+				  }
+</pre>
+
+</ul>
+		
+<hr />
+
+<h3 id="toc_0.2.3" class="justcenter">3. Vimwiki基本操作：</h3>
+<h3 id="toc_0.2.4" class="justcenter">4. Vimwiki使用技巧：</h3>
 
 
 
@@ -34,6 +146,7 @@
         <!-- For 量子统计 -->
         <script type="text/javascript" src="http://js.tongji.linezing.com/2785323/tongji.js"></script>
 	<!-- 加载SyntaxHighlighter高亮-->
+	<!--
 	<script type="text/javascript">
 	function path()
 	{
@@ -75,6 +188,7 @@
 	    ));
 	SyntaxHighlighter.config.clipboardSwf = '../../public/SyntaxHighlighter/scripts/clipboard.swf';
 	SyntaxHighlighter.all();
+	-->
 	</script>
     </body>
 </html>

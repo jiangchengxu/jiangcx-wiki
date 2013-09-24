@@ -1,0 +1,11 @@
+
+, World` 程序演示：
+02.
+{{{class="brush: java"
+	import java.io.*;
+	class Test{
+		public static void main(String[] args){
+			System.out.println("hello");
+		}
+	}
+}}}

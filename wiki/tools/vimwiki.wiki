@@ -1,0 +1,5 @@
+%title Vimwiki使用
+
+==下载及安装==
+	# 从vimwiki官网
+

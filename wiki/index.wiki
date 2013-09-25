@@ -1,3 +1,14 @@
- = My Knowledge wiki =
+%toc
+
+= 工具集 =
+
+[[tools/vimwiki|Vimwiki]] [[tools/vim|Vim]]
 
 
+----
+= Programming =
+
+[[programming/android/index|Android系统分析]]
+----
+
+%title 主页

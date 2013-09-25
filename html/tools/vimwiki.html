@@ -7,14 +7,10 @@
 
         <!-- SyntaxHighlighter -->
         <script src="../../public/SyntaxHighlighter/scripts/shCore.js"></script>
-        <script src="../../public/SyntaxHighlighter/scripts/shBrushAll.js"></script>
+        <script src="../../public/SyntaxHighlighter/scripts/shAutoloader.js"></script>
         <link type="text/css" rel="stylesheet" href="../../public/SyntaxHighlighter/styles/shCore.css"/>
         <link type="text/css" rel="stylesheet" href="../../public/SyntaxHighlighter/styles/shThemeMidnight.css"/>
-        <script>
-            SyntaxHighlighter.config.clipboardSwf = '../../public/SyntaxHighlighter/scripts/clipboard.swf';
-            SyntaxHighlighter.all();
-        </script>
-    </head>
+   </head>
     <body>
         <center style="font-family: 'Microsoft Yahei', sans-serif; font-size: 1.80em;
             font-weight: normal; color: #FF6600">Ruchee的荒草园子</center><br />
@@ -22,6 +18,20 @@
 
 
         
+<div class="toc">
+<ul>
+<li><a href="#toc_0.1">下载及安装</a>
+<li><a href="#toc_0.2">配置及使用</a>
+<ul>
+<li><a href="#toc_0.2.1">1. 在.vimrc中添加：</a>
+<li><a href="#toc_0.2.2">2. 使用<code>SyntaxHighlighter</code>添加代码高亮：</a>
+<li><a href="#toc_0.2.3">3. Vimwiki基本操作：</a>
+<li><a href="#toc_0.2.4">4. Vimwiki使用技巧：</a>
+<li><a href="#toc_0.2.5">5. 参考文件</a>
+</ul>
+</ul>
+</ul>
+</div>
 
 <h2 id="toc_0.1">下载及安装</h2>
 <ol>
@@ -37,42 +47,42 @@
 </ol>
 
 <hr />
-<h2 id="toc_0.2">使用</h2>
+<h2 id="toc_0.2">配置及使用</h2>
 
 <h3 id="toc_0.2.1">1. 在.vimrc中添加：</h3>
-	
+
 <pre class="brush: bash">
-			set nocompatible
-			filetype plugin on
-			syntax on
-			
-	
-			let g:vimwiki_use_mouse=1         " 使用鼠标映射
-	
-			" 声明可以在wiki里面使用的HTML标签
-			let g:vimwiki_valid_html_tags = 'a,img,b,i,s,u,sub,sup,br,hr,div,del,code,red,center,left,right,h1,h2,h3,h4,h5,h6,pre,script,style'
-	
-			" 创建站点
-			let blog = {}
-		    let blog.path          = '~/mysite/wiki/' 		"设置wiki存放文件的根目录
-			let blog.path_html     = '~/mysite/html/'		"设置wiki生成的html文件所在目录,%root_path%指向该目录
-			let blog.template_path = '~/mysite/templates/'	"设置wiki模版文件目录
-			let blog.template_default  = 'site'				"设置默认模版文件名
-			let blog.template_ext      = '.html'			"设置默认模版后缀名
-			let blog.auto_export       = 1					"设置是否自动导出
-			
-			" 加载站点
-			let g:vimwiki_list = [blog]
+    set nocompatible
+        filetype plugin on
+        syntax on
+
+
+        let g:vimwiki_use_mouse=1         " 使用鼠标映射
+
+        " 声明可以在wiki里面使用的HTML标签
+        let g:vimwiki_valid_html_tags = 'a,img,b,i,s,u,sub,sup,br,hr,div,del,code,red,center,left,right,h1,h2,h3,h4,h5,h6,pre,script,style'
+
+        " 创建站点
+        let blog = {}
+    let blog.path          = '~/mysite/wiki/' 		"设置wiki存放文件的根目录
+        let blog.path_html     = '~/mysite/html/'		"设置wiki生成的html文件所在目录,%root_path%指向该目录
+        let blog.template_path = '~/mysite/templates/'	"设置wiki模版文件目录
+        let blog.template_default  = 'site'				"设置默认模版文件名
+        let blog.template_ext      = '.html'			"设置默认模版后缀名
+        let blog.auto_export       = 1					"设置是否自动导出
+
+        " 加载站点
+        let g:vimwiki_list = [blog]
 </pre>
-	
+
 <h3 id="toc_0.2.2">2. 使用<code>SyntaxHighlighter</code>添加代码高亮：</h3>
-	 
+
 <ul>
 <li>
-在定义的vimwiki根目录(这里是<code>~/mysite</code>)中，创建目录<code>public/SyntaxHighlighter&lt;/</code>&gt;
+在定义的vimwiki根目录(这里是<code>~/mysite</code>)中，创建目录<code>public/SyntaxHighlighter</code>
 
 <li>
-从<a href="">官网</a>下载SyntaxHighlighter，解压后，将其中的<code>scripts</code>和<code>styles</code>文件夹复制到上面创建的<code>SyntaxHighlighter</code>文件夹中，注意记住存放的位置
+从<a href="http://alexgorbatchev.com/SyntaxHighlighter/download/">官网</a>下载SyntaxHighlighter，解压后，将其中的<code>scripts</code>和<code>styles</code>文件夹复制到上面创建的<code>SyntaxHighlighter</code>文件夹中，注意记住存放的位置
 
 <li>
 在根目录中，创建一个<code>templates</code>目录,用于存放模版
@@ -80,71 +90,134 @@
 <li>
 在template中创建一个默认模版，这里是<code>site.html</code>,该文件的内容可参考：
 <pre class="brush: html">
-				  &lt;!DOCTYPE HTML&gt; 
-					  &lt;html&gt;
-					  &lt;head&gt;
-                      &lt;!-- 加载自定义css文件 --&gt;
-					  &lt;link rel="Stylesheet" type="text/css" href="%root_path%../public/style.css" /&gt;
-					  
-					  &lt;title&gt;%title%&lt;/title&gt;&lt;!--引入wiki的title,在wiki文件中通过%title指定--&gt;
+    &lt;!DOCTYPE HTML&gt; 
+        &lt;html&gt;
+        &lt;head&gt;
+        &lt;!-- 加载自定义css文件 --&gt;
+        &lt;link rel="Stylesheet" type="text/css" href="%root_path%../public/style.css" /&gt;
 
-					  &lt;meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /&gt;
+        &lt;title&gt;%title%&lt;/title&gt;&lt;!--引入wiki的title,在wiki文件中通过%title指定--&gt;
 
-					  &lt;!-- SyntaxHighlighter --&gt;
-					  &lt;!-- 加载核心文件	--&gt;
-					  &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shCore.js"&gt;&lt;/script&gt;
-                      &lt;!-- 加载代码段颜色主题 --&gt;
-					  &lt;link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shThemeDefault.css"/&gt;
+        &lt;meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /&gt;
 
-					  &lt;!-- 加载Autoloader script文件, 不使用Autoloader机制的话，可以不引入--&gt;
-					  &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shAutoloader.js" type="text/javascript"&gt;&lt;/script&gt;
-					  &lt;!-- 加载所有的代码格式刷--&gt;
-					  &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shBrushAll.js" type="text/javascript"&gt;&lt;/script&gt;
+        &lt;!-- SyntaxHighlighter --&gt;
+        &lt;!-- 加载SyntaxHighlighter插件的核心实现文件,用于生成常规的html标签及class属性	--&gt;
+        &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shCore.js"&gt;&lt;/script&gt;
 
-					  &lt;script&gt;
+        &lt;!-- 加载具体语言的语法特性，用于生成对于的html及class属性，以用于css主题着色--&gt;
+        &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shBrushAll.js" type="text/javascript"&gt;&lt;/script&gt;
 
-						  SyntaxHighlighter.config.clipboardSwf = '%root_path%../public/SyntaxHighlighter/scripts/clipboard.swf';
-	                      SyntaxHighlighter.all();
+        &lt;!-- 加载核心css控制文件，控制shCore.js生成的标签和属性--&gt;
+        &lt;link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shCore.css"/&gt;
+        &lt;!-- 加载具体的代码着色css主题 --&gt;
+        &lt;link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shThemeDefault.css"/&gt;
+        &lt;script&gt;
 
-                      &lt;/script&gt;
-                      &lt;!-- 加载格式化代码的代码必须写在&lt;/header&gt;标签前面, 否则代码没有高亮效果--&gt;
-                      &lt;/header&gt;
-                      &lt;body&gt;
-					  %content% &lt;!--引入wiki的内容--&gt;
-					  &lt;/body&gt;
+        SyntaxHighlighter.config.clipboardSwf = '%root_path%../public/SyntaxHighlighter/scripts/clipboard.swf';
+    SyntaxHighlighter.all();
 
-                      &lt;/html&gt;
-                      
-					&lt;!-- 这里一定要注意路径及大小写，如果代码没有高亮效果，很有可能是这方面写的有问题--&gt;
-					&lt;!-- %root_path%变量指向的是html文件生成的目录，可以在vimrc中通过vimwiki的html_path属性设置 --&gt;
+    &lt;/script&gt;
+        &lt;!-- 加载格式化代码的代码必须写在&lt;/header&gt;标签前面, 否则代码没有高亮效果--&gt;
+        &lt;/header&gt;
+        &lt;body&gt;
+        %content% &lt;!--引入wiki的内容--&gt;
+        &lt;/body&gt;
+
+        &lt;/html&gt;
+
+        &lt;!-- 这里一定要注意路径及大小写，如果代码没有高亮效果，很有可能是这方面写的有问题--&gt;
+        &lt;!-- %root_path%变量指向的是html文件生成的目录，可以在vimrc中通过vimwiki的html_path属性设置 --&gt;
 </pre>
 
 </ul>
-<blockquote>
-vimwiki在新版本上引入了Autoloade机制，加载script的代码也可以这样写：
-</blockquote>
-			
+
 <ul>
 <li>
 之后，可以在代码段中使用相应的刷子高亮代码块了，如：
 <pre class="brush: c">
-				#include &lt;stdio.h&gt;
+#include &lt;stdio.h&gt;
 
-				int main (int argc, char* argv[])
-				{
-					printf("Hello, World\n");
+    int main (int argc, char* argv[])
+    {
+        printf("Hello, World\n");
 
-					return 0;
-				}
+        return 0;
+    }
 </pre>
 
 </ul>
-		
+<p>
+由于SyntaxHighlighter着色时，需要根据不同的语言选择相应的格式刷来着色，因此只能将所有可能会用到的格式刷brushXXX.js文件。
+因此在3.0之后，引入了shAutoloader.js文件，用于根据待着色代码块使用的格式刷配置，动态创建&amp;lt;script&gt;节点来加载适合的javascript文件，
+不会造成多余的资源浪费。
+使用shAutoloader文件的方法：
+</p>
+<ol>
+<li>
+在<code>&amp;lt;/header&gt;</code>标签前添加shAutoloader.js引用和其他SyntaxHighlighter核心文件
+<pre class="brush: html">
+    &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shCore.js"&gt;&lt;/script&gt;
+        &lt;script src="%root_path%../public/SyntaxHighlighter/scripts/shAutoloader.js"&gt;&lt;/script&gt;
+        &lt;link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shCore.css"/&gt;
+        ...... 
+</pre>
+
+<li>
+在<code>&lt;/body&gt;</code>标签前，而不是<code>&amp;lt;/head&gt;</code>添加
+<pre class="brush: html">
+    &lt;script&gt;
+        function path()
+        {
+                    var args = arguments,
+                            result = []
+                                ;
+                    for(var i = 0; i &lt; args.length; i++)
+                            result.push(args[i].replace('@', '%root_path%../public/SyntaxHighlighter/scripts/')); 
+                    return result;
+        };
+
+    SyntaxHighlighter.autoloader.apply(null, path(
+                'applescript            @shBrushAppleScript.js',
+                'actionscript3 as3      @shBrushAS3.js',
+                'bash shell             @shBrushBash.js',
+                'coldfusion cf          @shBrushColdFusion.js',
+                'cpp c                  @shBrushCpp.js',
+                'c# c-sharp csharp      @shBrushCSharp.js',
+                'css                    @shBrushCss.js',
+                'delphi pascal          @shBrushDelphi.js',
+                'diff patch pas         @shBrushDiff.js',
+                'erl erlang             @shBrushErlang.js',
+                'groovy                 @shBrushGroovy.js',
+                'java                   @shBrushJava.js',
+                'jfx javafx             @shBrushJavaFX.js',
+                'js jscript javascript  @shBrushJScript.js',
+                'perl pl                @shBrushPerl.js',
+                'php                    @shBrushPhp.js',
+                'text plain             @shBrushPlain.js',
+                'py python              @shBrushPython.js',
+                'ruby rails ror rb      @shBrushRuby.js',
+                'sass scss              @shBrushSass.js',
+                'scala                  @shBrushScala.js',
+                'sql                    @shBrushSql.js',
+                'vb vbnet               @shBrushVb.js',
+                'xml xhtml xslt html    @shBrushXml.js'
+                    ));
+    &lt;/script&gt;
+</pre>
+
+</ol>
 <hr />
 
 <h3 id="toc_0.2.3">3. Vimwiki基本操作：</h3>
 <h3 id="toc_0.2.4">4. Vimwiki使用技巧：</h3>
 <h3 id="toc_0.2.5">5. 参考文件</h3>
+<ul>
+<li>
+<a href="http://www.cnblogs.com/heyuquan/archive/2012/09/28/2707632.html">http://www.cnblogs.com/heyuquan/archive/2012/09/28/2707632.html</a>
+
+<li>
+
+</ul>
 
 
 
@@ -155,6 +228,86 @@ vimwiki在新版本上引入了Autoloade机制，加载script的代码也可以�
 
         <!-- For 量子统计 -->
         <script type="text/javascript" src="http://js.tongji.linezing.com/2785323/tongji.js"></script>
-
+        <!--
+	<script>
+	$(document).ready(function() { 
+	    function path() 
+	    { 
+	        var args = arguments, 
+	            result = [] 
+	            ; 
+	        for(var i = 0; i < args.length; i++) 
+	            result.push(args[i].replace('@', '../../public/SyntaxHighlighter/scripts/')); 
+	        return result; 
+	    }; 
+	    
+	    SyntaxHighlighter.autoloader.apply(null, path( 
+	      'applescript            @shBrushAppleScript.js', 
+	      'actionscript3 as3      @shBrushAS3.js', 
+	      'bash shell             @shBrushBash.js', 
+	      'coldfusion cf          @shBrushColdFusion.js', 
+	      'cpp c                  @shBrushCpp.js', 
+	      'c# c-sharp csharp      @shBrushCSharp.js', 
+	      'css                    @shBrushCss.js', 
+	      'delphi pascal          @shBrushDelphi.js', 
+	      'diff patch pas         @shBrushDiff.js', 
+	      'erl erlang             @shBrushErlang.js', 
+	      'groovy                 @shBrushGroovy.js', 
+	      'java                   @shBrushJava.js', 
+	      'jfx javafx             @shBrushJavaFX.js', 
+	      'js jscript javascript  @shBrushJScript.js', 
+	      'perl pl                @shBrushPerl.js', 
+	      'php                    @shBrushPhp.js', 
+	      'text plain             @shBrushPlain.js', 
+	      'py python              @shBrushPython.js', 
+	      'ruby rails ror rb      @shBrushRuby.js', 
+	      'sass scss              @shBrushSass.js', 
+	      'scala                  @shBrushScala.js', 
+	      'sql                    @shBrushSql.js', 
+	      'vb vbnet               @shBrushVb.js', 
+	      'xml xhtml xslt html    @shBrushXml.js'
+	    )); 
+	    
+	    SyntaxHighlighter.all(); 
+	});
+	</script>-->
+	<script>
+	function path() 
+	{ 
+	        var args = arguments, 
+	            result = [] 
+	            ; 
+	        for(var i = 0; i < args.length; i++) 
+	            result.push(args[i].replace('@', '../../public/SyntaxHighlighter/scripts/')); 
+	        return result; 
+	};
+	SyntaxHighlighter.autoloader.apply(null, path(
+	  'applescript            @shBrushAppleScript.js',
+	  'actionscript3 as3      @shBrushAS3.js',
+	  'bash shell             @shBrushBash.js',
+	  'coldfusion cf          @shBrushColdFusion.js',
+	  'cpp c                  @shBrushCpp.js',
+	  'c# c-sharp csharp      @shBrushCSharp.js',
+	  'css                    @shBrushCss.js',
+	  'delphi pascal          @shBrushDelphi.js',
+	  'diff patch pas         @shBrushDiff.js',
+	  'erl erlang             @shBrushErlang.js',
+	  'groovy                 @shBrushGroovy.js',
+	  'java                   @shBrushJava.js',
+	  'jfx javafx             @shBrushJavaFX.js',
+	  'js jscript javascript  @shBrushJScript.js',
+	  'perl pl                @shBrushPerl.js',
+	  'php                    @shBrushPhp.js',
+	  'text plain             @shBrushPlain.js',
+	  'py python              @shBrushPython.js',
+	  'ruby rails ror rb      @shBrushRuby.js',
+	  'sass scss              @shBrushSass.js',
+	  'scala                  @shBrushScala.js',
+	  'sql                    @shBrushSql.js',
+	  'vb vbnet               @shBrushVb.js',
+	  'xml xhtml xslt html    @shBrushXml.js'
+	));
+	SyntaxHighlighter.all();
+	</script>
     </body>
 </html>

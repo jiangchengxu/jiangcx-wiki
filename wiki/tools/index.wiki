@@ -2,8 +2,6 @@
 
 [[../index|首页]]
 
-<center>
-<h2>
+
+<h1>V<h1>
 [[vimwiki|VimWiki使用]]
-</h2>
-</center>

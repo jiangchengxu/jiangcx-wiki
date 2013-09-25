@@ -12,6 +12,16 @@
         <link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shThemeMidnight.css"/>
         <script>
             SyntaxHighlighter.config.clipboardSwf = '%root_path%../public/SyntaxHighlighter/scripts/clipboard.swf';
+            <!--是否支持只能缩进-->
+            <!--SyntaxHighlighter.defaults['smart-tabs'] = true;-->
+            <!--是否显示工具栏,当值为false而collapse设为true时，代码块会不可见-->
+            SyntaxHighlighter.defaults['toolbar'] = true;
+            <!--是否支持代码折叠-->
+            SyntaxHighlighter.defaults['collapse'] = true;
+            <!--设置代码块标题-->
+            SyntaxHighlighter.defaults['quick-code'] = false;
+            <!--设置代码块标题-->
+            SyntaxHighlighter.defaults['title'] = '示例代码';
             SyntaxHighlighter.all();
         </script>
     </head>

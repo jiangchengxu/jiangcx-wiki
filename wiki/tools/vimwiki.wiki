@@ -1,102 +1,154 @@
 %title Vimwiki使用
-%template code
+%toc
+%template code_3
 
 ==下载及安装==
-	# 从<a href="http://code.google.com/p/vimwiki/">vimwiki官网</a>中或<a href="https://github.com/jiangchengxu/jiangcx-wiki/blob/master/vim-scripts/vimwiki-2-1.vba#">这里(版本是vimwiki 2.1)</a>下载
-	# 将下载的vimwiki-2-1.vba.gz用vim打开（不需要解压）
-	# 运行<code>:so %</code>，安装完毕 
+# 从<a href="http://code.google.com/p/vimwiki/">vimwiki官网</a>中或<a href="https://github.com/jiangchengxu/jiangcx-wiki/blob/master/vim-scripts/vimwiki-2-1.vba#">这里(版本是vimwiki 2.1)</a>下载
+# 将下载的vimwiki-2-1.vba.gz用vim打开（不需要解压）
+# 运行`:so %`，安装完毕 
 
 ----
-==使用==
+==配置及使用==
 
 === 1. 在.vimrc中添加： === 
-	
-		{{{class="brush: bash"
-			set nocompatible
-			filetype plugin on
-			syntax on
-			
-	
-			let g:vimwiki_use_mouse=1         " 使用鼠标映射
-	
-			" 声明可以在wiki里面使用的HTML标签
-			let g:vimwiki_valid_html_tags = 'a,img,b,i,s,u,sub,sup,br,hr,div,del,code,red,center,left,right,h1,h2,h3,h4,h5,h6,pre,script,style'
-	
-			" 创建站点
-			let blog = {}
-		    let blog.path          = '~/mysite/wiki/' 		"设置wiki存放文件的根目录
-			let blog.path_html     = '~/mysite/html/'		"设置wiki生成的html文件所在目录,%root_path%指向该目录
-			let blog.template_path = '~/mysite/templates/'	"设置wiki模版文件目录
-			let blog.template_default  = 'site'				"设置默认模版文件名
-			let blog.template_ext      = '.html'			"设置默认模版后缀名
-			let blog.auto_export       = 1					"设置是否自动导出
-			
-			" 加载站点
-			let g:vimwiki_list = [blog]
-		}}}
-	
-=== 2. 使用<code>SyntaxHighlighter</code>添加代码高亮： ===
-	 
-			- 在定义的vimwiki根目录(这里是`~/mysite`)中，创建目录`public/SyntaxHighlighter</`>
-			-	从<a href="">官网</a>下载SyntaxHighlighter，解压后，将其中的<code>scripts</code>和<code>styles</code>文件夹复制到上面创建的<code>SyntaxHighlighter</code>文件夹中，注意记住存放的位置
-			- 在根目录中，创建一个<code>templates</code>目录,用于存放模版
-			- 在template中创建一个默认模版，这里是`site.html`,该文件的内容可参考：
-			{{{class="brush: html"
-				  <!DOCTYPE HTML> 
-					  <html>
-					  <head>
-                      <!-- 加载自定义css文件 -->
-					  <link rel="Stylesheet" type="text/css" href="%root_path%../public/style.css" />
-					  
-					  <title>%title%</title><!--引入wiki的title,在wiki文件中通过%title指定-->
 
-					  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+{{{class="brush: bash"
+    set nocompatible
+        filetype plugin on
+        syntax on
 
-					  <!-- SyntaxHighlighter -->
-					  <!-- 加载核心文件	-->
-					  <script src="%root_path%../public/SyntaxHighlighter/scripts/shCore.js"></script>
-                      <!-- 加载代码段颜色主题 -->
-					  <link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shThemeDefault.css"/>
 
-					  <!-- 加载Autoloader script文件, 不使用Autoloader机制的话，可以不引入-->
-					  <script src="%root_path%../public/SyntaxHighlighter/scripts/shAutoloader.js" type="text/javascript"></script>
-					  <!-- 加载所有的代码格式刷-->
-					  <script src="%root_path%../public/SyntaxHighlighter/scripts/shBrushAll.js" type="text/javascript"></script>
+        let g:vimwiki_use_mouse=1         " 使用鼠标映射
 
-					  <script>
+        " 声明可以在wiki里面使用的HTML标签
+        let g:vimwiki_valid_html_tags = 'a,img,b,i,s,u,sub,sup,br,hr,div,del,code,red,center,left,right,h1,h2,h3,h4,h5,h6,pre,script,style'
 
-						  SyntaxHighlighter.config.clipboardSwf = '%root_path%../public/SyntaxHighlighter/scripts/clipboard.swf';
-	                      SyntaxHighlighter.all();
+        " 创建站点
+        let blog = {}
+    let blog.path          = '~/mysite/wiki/' 		"设置wiki存放文件的根目录
+        let blog.path_html     = '~/mysite/html/'		"设置wiki生成的html文件所在目录,%root_path%指向该目录
+        let blog.template_path = '~/mysite/templates/'	"设置wiki模版文件目录
+        let blog.template_default  = 'site'				"设置默认模版文件名
+        let blog.template_ext      = '.html'			"设置默认模版后缀名
+        let blog.auto_export       = 1					"设置是否自动导出
 
-                      </script>
-                      <!-- 加载格式化代码的代码必须写在</header>标签前面, 否则代码没有高亮效果-->
-                      </header>
-                      <body>
-					  %content% <!--引入wiki的内容-->
-					  </body>
+        " 加载站点
+        let g:vimwiki_list = [blog]
+}}}
 
-                      </html>
-                      
-					<!-- 这里一定要注意路径及大小写，如果代码没有高亮效果，很有可能是这方面写的有问题-->
-					<!-- %root_path%变量指向的是html文件生成的目录，可以在vimrc中通过vimwiki的html_path属性设置 -->
-			}}}
-            
-            vimwiki在新版本上引入了Autoloade机制，加载script的代码也可以这样写：
-			
-			- 之后，可以在代码段中使用相应的刷子高亮代码块了，如：
-			{{{class="brush: c"
-				#include <stdio.h>
+=== 2. 使用`SyntaxHighlighter`添加代码高亮： ===
 
-				int main (int argc, char* argv[])
-				{
-					printf("Hello, World\n");
+- 在定义的vimwiki根目录(这里是`~/mysite`)中，创建目录`public/SyntaxHighlighter`
+- 从<a href="http://alexgorbatchev.com/SyntaxHighlighter/download/">官网</a>下载SyntaxHighlighter，解压后，将其中的`scripts`和`styles`文件夹复制到上面创建的`SyntaxHighlighter`文件夹中，注意记住存放的位置
+- 在根目录中，创建一个`templates`目录,用于存放模版
+- 在template中创建一个默认模版，这里是`site.html`,该文件的内容可参考：
+{{{class="brush: html"
+    <!DOCTYPE HTML> 
+        <html>
+        <head>
+        <!-- 加载自定义css文件 -->
+        <link rel="Stylesheet" type="text/css" href="%root_path%../public/style.css" />
 
-					return 0;
-				}
-			}}}
-		
+        <title>%title%</title><!--引入wiki的title,在wiki文件中通过%title指定-->
+
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+
+        <!-- SyntaxHighlighter -->
+        <!-- 加载SyntaxHighlighter插件的核心实现文件,用于生成常规的html标签及class属性	-->
+        <script src="%root_path%../public/SyntaxHighlighter/scripts/shCore.js"></script>
+
+        <!-- 加载具体语言的语法特性，用于生成对于的html及class属性，以用于css主题着色-->
+        <script src="%root_path%../public/SyntaxHighlighter/scripts/shBrushAll.js" type="text/javascript"></script>
+
+        <!-- 加载核心css控制文件，控制shCore.js生成的标签和属性-->
+        <link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shCore.css"/>
+        <!-- 加载具体的代码着色css主题 -->
+        <link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shThemeDefault.css"/>
+        <script>
+
+        SyntaxHighlighter.config.clipboardSwf = '%root_path%../public/SyntaxHighlighter/scripts/clipboard.swf';
+    SyntaxHighlighter.all();
+
+    </script>
+        <!-- 加载格式化代码的代码必须写在</header>标签前面, 否则代码没有高亮效果-->
+        </header>
+        <body>
+        %content% <!--引入wiki的内容-->
+        </body>
+
+        </html>
+
+        <!-- 这里一定要注意路径及大小写，如果代码没有高亮效果，很有可能是这方面写的有问题-->
+        <!-- %root_path%变量指向的是html文件生成的目录，可以在vimrc中通过vimwiki的html_path属性设置 -->
+}}}
+
+- 之后，可以在代码段中使用相应的刷子高亮代码块了，如：
+{{{class="brush: c"
+#include <stdio.h>
+
+    int main (int argc, char* argv[])
+    {
+        printf("Hello, World\n");
+
+        return 0;
+    }
+  }}}
+由于SyntaxHighlighter着色时，需要根据不同的语言选择相应的格式刷来着色，因此只能将所有可能会用到的格式刷brushXXX.js文件。
+因此在3.0之后，引入了shAutoloader.js文件，用于根据待着色代码块使用的格式刷配置，动态创建&lt;script>节点来加载适合的javascript文件，
+不会造成多余的资源浪费。
+使用shAutoloader文件的方法：
+# 在`&lt;/header>`标签前添加shAutoloader.js引用和其他SyntaxHighlighter核心文件
+{{{class="brush: html"
+    <script src="%root_path%../public/SyntaxHighlighter/scripts/shCore.js"></script>
+        <script src="%root_path%../public/SyntaxHighlighter/scripts/shAutoloader.js"></script>
+        <link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shCore.css"/>
+        ...... 
+}}}   
+# 在`</body>`标签前，而不是`&lt;/head>`添加
+{{{class="brush: html"
+    <script>
+        function path()
+        {
+                    var args = arguments,
+                            result = []
+                                ;
+                    for(var i = 0; i < args.length; i++)
+                            result.push(args[i].replace('@', '%root_path%../public/SyntaxHighlighter/scripts/')); 
+                    return result;
+        };
+
+    SyntaxHighlighter.autoloader.apply(null, path(
+                'applescript            @shBrushAppleScript.js',
+                'actionscript3 as3      @shBrushAS3.js',
+                'bash shell             @shBrushBash.js',
+                'coldfusion cf          @shBrushColdFusion.js',
+                'cpp c                  @shBrushCpp.js',
+                'c# c-sharp csharp      @shBrushCSharp.js',
+                'css                    @shBrushCss.js',
+                'delphi pascal          @shBrushDelphi.js',
+                'diff patch pas         @shBrushDiff.js',
+                'erl erlang             @shBrushErlang.js',
+                'groovy                 @shBrushGroovy.js',
+                'java                   @shBrushJava.js',
+                'jfx javafx             @shBrushJavaFX.js',
+                'js jscript javascript  @shBrushJScript.js',
+                'perl pl                @shBrushPerl.js',
+                'php                    @shBrushPhp.js',
+                'text plain             @shBrushPlain.js',
+                'py python              @shBrushPython.js',
+                'ruby rails ror rb      @shBrushRuby.js',
+                'sass scss              @shBrushSass.js',
+                'scala                  @shBrushScala.js',
+                'sql                    @shBrushSql.js',
+                'vb vbnet               @shBrushVb.js',
+                'xml xhtml xslt html    @shBrushXml.js'
+                    ));
+    </script>
+}}}
 ----
 
 === 3. Vimwiki基本操作： ===
 === 4. Vimwiki使用技巧： ===
 === 5. 参考文件 ===
+* http://www.cnblogs.com/heyuquan/archive/2012/09/28/2707632.html
+* 

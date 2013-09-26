@@ -4,15 +4,20 @@
 
 = Android Telephoney系统 分析 =
 
-Android Telephony采用分层的结构，从下到上依次为`RIL层`，`Framework层`及`应用层`，各个层的主要工作包括:
+Android Telephony系统是一个为手机提供通讯功能，如语音通话，短信，数据服务，网络管理等功能的软件框架，采用典型4分层的结构：
+    * 无线模块驱动层
+    * telephony服务层
+    * telephony抽象接口层
+    * telephony应用层
 
-== 1. [[android_ril|Android RIL分析]] ==
-负责AP模块与BP模块的通信，将AP模块命令发送到BP模块和接受BP模块发回的信息并上报给AP。
-----
-== 2. [[android_telephony|Android Telephony接口层分析]] ==
-提供上层应用与RIL交互的接口，上层应用通过Framework层公开的接口来与RIL及最终的BP模块交互
-----
-== 3. [[android_telphone|Android Telephony应用层分析]] ==
-与最终用户交互
+== 1. 无线模块驱动层 ==
+主要是各种无线模块在linux的驱动实现
+== 2. telephony服务层 ==
+Android引入RIL机制，通过AT指令来监控和控制无线模块，具体的分析请看[[android_ril|这里]]
+== 3. telephony抽象接口层 ==
+提供了应用层可以使用的Telephony接口，通过socket与rild守护进程交互,具体的分析请看[[android_telephony|这里]]
+== 4. telephony应用层 ==
+包括原生的PhoneApp及各种第三方telephony应用，对Android原生PhoneApp的分析请看[[android_phone|这里]]
+
 
 = Android 开机分析 =

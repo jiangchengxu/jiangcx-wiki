@@ -1,0 +1,167 @@
+%toc
+%template code_3
+
+    = Android Telephony接口分析 =
+
+Telephony Framework为上层应用提供了一系列的与通信有关的API，并在底层通过socket实现与rild 服务的数据交互。
+google将telephony framework的实现放在了两个java包中：
+* 内部包：frameworks/base/telephony/java/com/android/internal/telephony 
+* 公开包：frameworks/base/telephony/com/android/telephony
+
+= 内部包 =
+支持所有的telephony功能,只能被Android自带的telephoney应用使用－Phone.apk
+内部包中包括所有telephony功能实现类，我们通过Phone.java作为引子进行分析：
+
+=== `Phone.java` ===
+
+{{{class="brush: java"
+public interface Phhone{
+    ......
+    //定义手机状态
+    enum State{
+        IDLE, RINGING, OFFHOOK;    
+    }
+    //定义数据业务状态
+    enum DataState {
+        CONNECTED, CONNECTING, DISCONNECTED, SUSPENDED;
+    };
+    ......
+    //获取Phone的字符串表示，如: GSMPhone，CDMAPhone 
+    String getPhoneName();
+    //获取Phone的类型，如：PHONE_TYPE_GSM, PHONE_TYPE_CDMA
+    int getPhoneType();
+    //获取信号强度 
+    SignalStrength getSignalStrength();
+    
+    //注册通话状态改变通知
+    void registerForPreciseCallStateChanged(Handler h, int what, Object obj);
+    //取消注册   
+    void unregisterForPreciseCallStateChanged(Handler h);
+    ......
+    //拨打电话
+    Connection dial(String dialString) throws CallStateException;
+    ......
+}    
+}}}
+从上面可以看出， 该接口仅仅定义了可以操作Phone的内部接口，如拨打、接听、拒接电话，获取通话状态，监听通话状态等, 其具体功能的实现是由PhoneBase和具体的GSMPhone或CDMAPhone来实现
+
+=== `PhoneBase.java` ===
+
+PhoneBase是一个抽象类，在继承Handler的基础上实现了Phone接口中通用的部分，实现了Phone接口中注册和取消事件通知的接口：
+{{{class="brush: java"
+public abstract class PhoneBase extends Handler implements Phone {
+    ......
+    //声明一个列表，用于保存来电铃声通知的侦听者
+    protected final RegistrantList mIncomingRingRegistrants
+            = new RegistrantList();
+    ......
+
+    protected PhoneNotifier mNotifier;
+    protected CommondsInterface ci;
+    ......
+    //注册来电铃声的事件通知
+    public void registerForIncomingRing(
+            Handler h, int what, Object obj) {
+        checkCorrectThread(h);
+
+        mIncomingRingRegistrants.addUnique(h, what, obj);
+    }
+}
+}}}
+从上面的代码看出，PhoneBase使用了监听者模式，将事件的接收者通过registerXXX()函数保存在相应的RegistrantList中，这样，当对应的事件触发后，就可以通知到所有对该事件感兴趣的接受者啦。
+
+`PhoneBase实现Phone接口很容易理解，可以是为什么要继承自Handler类呢？`
+答案就在PhoneBase的构造函数里：
+{{{class="brush: java"
+
+    protected PhoneBase(PhoneNotifier notifier, Context context, CommandsInterface ci,
+            boolean unitTestMode) {
+        this.mNotifier = notifier;
+        this.mContext = context;
+        mLooper = Looper.myLooper();
+        mCM = ci;
+
+        ......
+        /*
+        *答案在这里：PhoneBase通过mCM将自己注册为来电铃音事件的唯一接收者
+        */
+        mCM.setOnCallRing(this, EVENT_CALL_RING, null);
+
+        // Initialize device storage and outgoing SMS usage monitors for SMSDispatchers.
+        mSmsStorageMonitor = new SmsStorageMonitor(this);
+        mSmsUsageMonitor = new SmsUsageMonitor(context.getContentResolver());
+    }
+    //对应的handleMessage 
+    @Override
+    public void handleMessage(Message msg) {
+        AsyncResult ar;
+
+        switch(msg.what) {
+            case EVENT_CALL_RING:
+                //处理来电铃音事件
+                ar = (AsyncResult)msg.obj;
+                if (ar.exception == null) {
+                    Phone.State state = getState();
+                    //部分RIL不会多次发送来电事件，此时强制发送该事件，简化处理情况
+                    if ((!mDoesRilSendMultipleCallRing)
+                            && ((state == Phone.State.RINGING) || (state == Phone.State.IDLE))) {
+                        mCallRingContinueToken += 1;
+                        sendIncomingCallRingNotification(mCallRingContinueToken);
+                    } else {
+                        notifyIncomingRing(); //PhoneBase在这里通知其他侦听者有来电铃音
+                    }
+                }
+                break;
+            
+            //再次发送来电铃音时间
+            case EVENT_CALL_RING_CONTINUE:
+                Log.d(LOG_TAG, "Event EVENT_CALL_RING_CONTINUE Received stat=" + getState());
+                if (getState() == Phone.State.RINGING) {
+                    sendIncomingCallRingNotification(msg.arg1);
+                }
+                break;
+
+            default:
+                throw new RuntimeException("unexpected event not handled");
+        }
+    }
+    ......
+
+    //通知其他对来电铃音感兴趣的接收者
+    private void notifyIncomingRing() {
+        if (!mIsVoiceCapable)
+            return;
+        AsyncResult ar = new AsyncResult(null, this, null);
+        //使用RegistrantList列表通知注册的接受者
+        mIncomingRingRegistrants.notifyRegistrants(ar);
+    }
+}}}
+
+在这里，我们接触到了telephony framework中最重要的对象`mCM`，这是一个CommondsInterface接口对象，对他的分析会在下面说明，现在之需要知道PhonbBase通过该对象发送命令给BP并接收BP发送回来的信息。
+
+下面我们看PhoneBase声明的抽象方法：
+{{{class="brush: java"
+    ......
+    //获取手机的状态
+    public abstract Phone.State getState();
+    //获取SIM/UIM卡中文件handler 
+    public abstract IccFileHandler getIccFileHandler();
+    //获取Phone名称的字符串表示
+    public abstract String getPhoneName();
+    //获取Phone的类型
+    public abstract int getPhoneType();
+    ......
+}}}
+这些都是与具体的手机模式和卡相关的方法，所以由具体的子类来实现：GSMPhone或CDMAPhone等
+- GSMPhone实现类：framework/base/telephony/com/android/internal/telephony/gsm/GSMPhone.java
+- CDMAPhone实现类：framework/base/telephony/com/android/internal/telephony/cdma/CDMAPhone.java
+
+下面以GSMPhone为例来分析
+== `GSMPhone.java` ==
+GSMPhone继承自PhoneBase抽象类，是GSM制式Phone的具体实现。
+
+
+
+Android原生Phone应用使用PhoneFactory
+= 公开包 =
+可以被第三方telephony应用使用，用于获取手机和网络信息，如童话状态，漫游状态，运营商名称等。

@@ -141,7 +141,16 @@ public abstract class PhoneBase extends Handler implements Phone {
 
 在这里，我们接触到了telephony framework中最重要的对象`mCM`，这是一个CommondsInterface接口对象，对他的分析会在下面说明，现在之需要知道PhonbBase通过该对象发送命令给BP并接收BP发送回来的信息。
 
-下面我们看PhoneBase声明的抽象方法：
+PhoneBase中定义了几个重要的成员变量
+{{{class="brush: java"
+    public CommandsInterface mCM;   //RIL对象，负责与rild交互
+    protected IccFileHandler mIccFileHandler;   //负责对卡中的文件进行处理
+    public DataConnectionTracker mDataConnectionTracker; //负责数据连接管理
+    public IccRecords mIccRecords; //负责对卡中的记录处理
+    public IccCard mIccCard;    //负责对卡的状态管理
+    public SMSDispatcher mSMS;  //负责短信收发功能
+}}}
+这几个类是Phone各个功能模块的具体实现类，和 下面我们看PhoneBase声明的抽象方法：
 {{{class="brush: java"
     ......
     //获取手机的状态
@@ -154,14 +163,15 @@ public abstract class PhoneBase extends Handler implements Phone {
     public abstract int getPhoneType();
     ......
 }}}
-这些都是与具体的手机模式和卡相关的方法，所以由具体的子类来实现：GSMPhone或CDMAPhone等
+这些都是与具体的手机模式和卡相关的属性方法，所以由具体的子类来实现：GSMPhone或CDMAPhone等
 - GSMPhone实现类：framework/base/telephony/com/android/internal/telephony/gsm/GSMPhone.java
 - CDMAPhone实现类：framework/base/telephony/com/android/internal/telephony/cdma/CDMAPhone.java
 
 下面以GSMPhone为例来分析
 == `GSMPhone.java` ==
 [[http://www.oschina.net/code/explore/android-4.0.1/telephony/java/com/android/internal/telephony/gsm/GSMPhone.java|android源码]]
-GSMPhone继承自PhoneBase抽象类，是GSM网络模式Phone的具体实现。
+GSMPhone继承自PhoneBase抽象类，是GSM网络模式Phone的具体实现，上面提到的重要成员变量和抽象方法都在这个类中实现，由于涉及的内容太多，详细内容放在[[android_telephony_gsmphone|GSMPhone详细分析]]中。
+
 
 
 

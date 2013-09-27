@@ -3,6 +3,7 @@
 = 工具集 =
 
 [[tools/vimwiki|Vimwiki]] [[tools/vim|Vim]]
+[[tools/smbclient|smbclient]] [[tools/scp|scp]]
 
 
 ----

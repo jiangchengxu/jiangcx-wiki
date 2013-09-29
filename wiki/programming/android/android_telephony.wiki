@@ -172,9 +172,122 @@ PhoneBase中定义了几个重要的成员变量
 [[http://www.oschina.net/code/explore/android-4.0.1/telephony/java/com/android/internal/telephony/gsm/GSMPhone.java|android源码]]
 GSMPhone继承自PhoneBase抽象类，是GSM网络模式Phone的具体实现，上面提到的重要成员变量和抽象方法都在这个类中实现，由于涉及的内容太多，详细内容放在[[android_telephony_gsmphone|GSMPhone详细分析]]中。
 
+上面介绍了与Phone相关的主要类，他们在实际应用中又是如何被App创建和使用的？这就用到了下面介绍的类：PhoneFactory。
 
+== PhoneFactory ==
+PhoneFactory是一个工厂类，上层应用使用该类的静态方法makeDefaultPhones()根据系统设定的网络模式来实例化对应的Phone对象
+{{{class="brush: java"
+    public static void makeDefaultPhones(Context context) {
+        makeDefaultPhone(context);
+    }
 
+    public static void makeDefaultPhone(Context context) {
+        synchronized(Phone.class) {
+            //如果sMadeDefaults等于true，表示已经创建过defaultPhone
+            if (!sMadeDefaults) {
+                sLooper = Looper.myLooper();
+                sContext = context;
 
-Android原生Phone应用使用PhoneFactory
+                if (sLooper == null) {
+                    throw new RuntimeException(
+                            "PhoneFactory.makeDefaultPhone must be called from Looper thread");
+                }
+                ......
+
+                //创建PhoneNotifier()对象，该对象的作用后面会介绍
+                sPhoneNotifier = new DefaultPhoneNotifier();
+
+                //获取优选网络模式
+                int preferredNetworkMode = RILConstants.PREFERRED_NETWORK_MODE;
+                if (BaseCommands.getLteOnCdmaModeStatic() == Phone.LTE_ON_CDMA_TRUE) {
+                    preferredNetworkMode = Phone.NT_MODE_GLOBAL;
+                }
+                int networkMode = Settings.Secure.getInt(context.getContentResolver(),
+                        Settings.Secure.PREFERRED_NETWORK_MODE, preferredNetworkMode);
+                Log.i(LOG_TAG, "Network Mode set to " + Integer.toString(networkMode));
+
+                int cdmaSubscription;
+                int lteOnCdma = BaseCommands.getLteOnCdmaModeStatic();
+                switch (lteOnCdma) {
+                    case Phone.LTE_ON_CDMA_FALSE:
+                        cdmaSubscription = RILConstants.SUBSCRIPTION_FROM_NV;
+                        Log.i(LOG_TAG, "lteOnCdma is 0 use SUBSCRIPTION_FROM_NV");
+                        break;
+                    case Phone.LTE_ON_CDMA_TRUE:
+                        cdmaSubscription = RILConstants.SUBSCRIPTION_FROM_RUIM;
+                        Log.i(LOG_TAG, "lteOnCdma is 1 use SUBSCRIPTION_FROM_RUIM");
+                        break;
+                    case Phone.LTE_ON_CDMA_UNKNOWN:
+                    default:
+                        //Get cdmaSubscription mode from Settings.System
+                        cdmaSubscription = Settings.Secure.getInt(context.getContentResolver(),
+                                Settings.Secure.PREFERRED_CDMA_SUBSCRIPTION,
+                                preferredCdmaSubscription);
+                        Log.i(LOG_TAG, "lteOnCdma not set, using PREFERRED_CDMA_SUBSCRIPTION");
+                        break;
+                }
+                Log.i(LOG_TAG, "Cdma Subscription set to " + cdmaSubscription);
+
+                //根据系统设在，创建CommandInterface接口对象RIL，关于这个对象，后面会详细介绍
+                sCommandsInterface = new RIL(context, networkMode, cdmaSubscription);
+
+                //根据不同的网络模式，创建不同的Phone
+                int phoneType = getPhoneType(networkMode);
+                if (phoneType == Phone.PHONE_TYPE_GSM) {
+                    Log.i(LOG_TAG, "Creating GSMPhone");
+                    sProxyPhone = new PhoneProxy(new GSMPhone(context,
+                                sCommandsInterface, sPhoneNotifier));
+                } else if (phoneType == Phone.PHONE_TYPE_CDMA) {
+                    switch (BaseCommands.getLteOnCdmaModeStatic()) {
+                        case Phone.LTE_ON_CDMA_TRUE:
+                            Log.i(LOG_TAG, "Creating CDMALTEPhone");
+                            sProxyPhone = new PhoneProxy(new CDMALTEPhone(context,
+                                        sCommandsInterface, sPhoneNotifier));
+                            break;
+                        case Phone.LTE_ON_CDMA_FALSE:
+                        default:
+                            Log.i(LOG_TAG, "Creating CDMAPhone");
+                            sProxyPhone = new PhoneProxy(new CDMAPhone(context,
+                                        sCommandsInterface, sPhoneNotifier));
+                            break;
+                    }
+                }
+                //设置标示位，表示创建成功
+                sMadeDefaults = true;
+            }
+        }
+    }
+    
+    public static int getPhoneType(int networkMode) {
+        switch(networkMode) {
+        case RILConstants.NETWORK_MODE_CDMA:
+        case RILConstants.NETWORK_MODE_CDMA_NO_EVDO:
+        case RILConstants.NETWORK_MODE_EVDO_NO_CDMA:
+            return Phone.PHONE_TYPE_CDMA;
+
+        case RILConstants.NETWORK_MODE_WCDMA_PREF:
+        case RILConstants.NETWORK_MODE_GSM_ONLY:
+        case RILConstants.NETWORK_MODE_WCDMA_ONLY:
+        case RILConstants.NETWORK_MODE_GSM_UMTS:
+            return Phone.PHONE_TYPE_GSM;
+
+        // Use CDMA Phone for the global mode including CDMA
+        case RILConstants.NETWORK_MODE_GLOBAL:
+        case RILConstants.NETWORK_MODE_LTE_CDMA_EVDO:
+        case RILConstants.NETWORK_MODE_LTE_CMDA_EVDO_GSM_WCDMA:
+            return Phone.PHONE_TYPE_CDMA;
+
+        case RILConstants.NETWORK_MODE_LTE_ONLY:
+            if (BaseCommands.getLteOnCdmaModeStatic() == Phone.LTE_ON_CDMA_TRUE) {
+                return Phone.PHONE_TYPE_CDMA;
+            } else {
+                return Phone.PHONE_TYPE_GSM;
+            }
+        default:
+            return Phone.PHONE_TYPE_GSM;
+        }
+    }
+}}}
+
 = 公开包 =
 可以被第三方telephony应用使用，用于获取手机和网络信息，如童话状态，漫游状态，运营商名称等。

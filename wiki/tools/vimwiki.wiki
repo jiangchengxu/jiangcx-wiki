@@ -147,6 +147,7 @@
 ----
 
 === 3. Vimwiki基本操作： ===
+[[http://code.google.com/p/vim-script-cn/source/browse/tags/doc/vimwiki_v1..1.1?spec=svn162&r=162|vim-script-cn]]
 ----
 === 4. Vimwiki使用技巧： ===
 ----

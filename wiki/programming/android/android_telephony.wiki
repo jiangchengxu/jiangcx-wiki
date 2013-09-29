@@ -174,8 +174,9 @@ GSMPhone继承自PhoneBase抽象类，是GSM网络模式Phone的具体实现，�
 
 上面介绍了与Phone相关的主要类，他们在实际应用中又是如何被App创建和使用的？这就用到了下面介绍的类：PhoneFactory。
 
-== PhoneFactory ==
+== PhoneFactory.java ==
 PhoneFactory是一个工厂类，上层应用使用该类的静态方法makeDefaultPhones()根据系统设定的网络模式来实例化对应的Phone对象
+
 {{{class="brush: java"
     public static void makeDefaultPhones(Context context) {
         makeDefaultPhone(context);
@@ -235,6 +236,7 @@ PhoneFactory是一个工厂类，上层应用使用该类的静态方法makeDefa
                 int phoneType = getPhoneType(networkMode);
                 if (phoneType == Phone.PHONE_TYPE_GSM) {
                     Log.i(LOG_TAG, "Creating GSMPhone");
+                    //使用代理模式
                     sProxyPhone = new PhoneProxy(new GSMPhone(context,
                                 sCommandsInterface, sPhoneNotifier));
                 } else if (phoneType == Phone.PHONE_TYPE_CDMA) {
@@ -287,7 +289,127 @@ PhoneFactory是一个工厂类，上层应用使用该类的静态方法makeDefa
             return Phone.PHONE_TYPE_GSM;
         }
     }
+   //获取默认的Phone对象
+    public static Phone getDefaultPhone() {
+        if (sLooper != Looper.myLooper()) {
+            throw new RuntimeException(
+                "PhoneFactory.getDefaultPhone must be called from Looper thread");
+        }
+
+        if (!sMadeDefaults) {
+            throw new IllegalStateException("Default phones haven't been made yet!");
+        }
+       return sProxyPhone;
+    }
 }}}
+
+PhoneFactory工厂类很简单，只是提供了创建默认Phone对象和获取不同Phone对象的静态方法，在根据网络模式创建默认Phone对象的时候，又用到了`PhoneProxy`类。
+
+== PhoneProxy.java ==
+
+PhoneProxy类是一个代理类，用于屏蔽Phone对象的实现细节，使上层应用使用时，不必关系实际的网络模式。
+
+{{{class="brush: java"
+  public class PhoneProxy extends Handler implements Phone {
+    ......
+    private IccSmsInterfaceManagerProxy mIccSmsInterfaceManagerProxy;   //IccSmsInterfaceManager接口的代理
+    private IccPhoneBookInterfaceManagerProxy mIccPhoneBookInterfaceManagerProxy;   //IccPhoneBookInterfaceManager接口代理
+    private PhoneSubInfoProxy mPhoneSubInfoProxy;   //PhoneSubInfo代理
+    ......
+    
+      public PhoneProxy(Phone phone) {
+          ......
+          //根据不同模式的Phone创建代理成员对象 
+          mIccSmsInterfaceManagerProxy = new IccSmsInterfaceManagerProxy(
+                  phone.getIccSmsInterfaceManager());
+          mIccPhoneBookInterfaceManagerProxy = new IccPhoneBookInterfaceManagerProxy(
+                  phone.getIccPhoneBookInterfaceManager());
+          mPhoneSubInfoProxy = new PhoneSubInfoProxy(phone.getPhoneSubInfo());
+          //注册EVENT_RADIO_TECHNOLOGY_CHANGED事件监听
+          mCommandsInterface = ((PhoneBase)mActivePhone).mCM;
+          mCommandsInterface.registerForRadioTechnologyChanged(
+                  this, EVENT_RADIO_TECHNOLOGY_CHANGED, null);
+      }
+  }
+}}}
+PhoneProxy在构造时，使用了具体Phone对象的成员变量构造自己的代理成员变量，如IccSmsInterfaceManager, IccPhoneBookInterfaceManager等，并注册了EVT_RADIO_TECHNOLOGY_CHANGED事件侦听handler，当无线技术改变时，依据新的radio技术对代理类做出调整。
+{{{class="brush: java"
+    public void handleMessage(Message msg) {
+        switch(msg.what) {
+        case EVENT_RADIO_TECHNOLOGY_CHANGED:
+            //switch Phone from CDMA to GSM or vice versa
+            mOutgoingPhone = mActivePhone.getPhoneName();
+            ......
+            //设置PhoneProxy实际被代理的Phone对象
+            if(mOutgoingPhone.equals("GSM")) {
+                logd("Make a new CDMAPhone and destroy the old GSMPhone.");
+
+                ((GSMPhone)mActivePhone).dispose();
+                Phone oldPhone = mActivePhone;
+
+                mActivePhone = PhoneFactory.getCdmaPhone();
+                ((GSMPhone)oldPhone).removeReferences();
+                oldPhone = null;
+            } else {
+                ((CDMAPhone)mActivePhone).dispose();
+                Phone oldPhone = mActivePhone;
+
+                mActivePhone = PhoneFactory.getGsmPhone();
+                ((CDMAPhone)oldPhone).removeReferences();
+                oldPhone = null;
+            }
+
+            ......
+
+            //Set the new interfaces in the proxy's
+            //设置PhoneProxy代理成员变量
+            mIccSmsInterfaceManagerProxy.setmIccSmsInterfaceManager(
+                    mActivePhone.getIccSmsInterfaceManager());
+            mIccPhoneBookInterfaceManagerProxy.setmIccPhoneBookInterfaceManager(
+                    mActivePhone.getIccPhoneBookInterfaceManager());
+            mPhoneSubInfoProxy.setmPhoneSubInfo(this.mActivePhone.getPhoneSubInfo());
+            mCommandsInterface = ((PhoneBase)mActivePhone).mCM;
+
+            //当radio technology change发生时，想PhoneApp发送广播
+            Intent intent = new Intent(TelephonyIntents.ACTION_RADIO_TECHNOLOGY_CHANGED);
+            intent.addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING);
+            intent.putExtra(Phone.PHONE_NAME_KEY, mActivePhone.getPhoneName());
+            ActivityManagerNative.broadcastStickyIntent(intent, null);
+            break;
+        default:
+            Log.e(LOG_TAG,"Error! This handler was not registered for this message type. Message: "
+                    + msg.what);
+        break;
+        }
+        super.handleMessage(msg);
+    }
+}}}
+
+既然是具体Phone的代理类，Phone的接口实现也仅是调用被代理Phone对象的方法,比如：
+{{{class="brush: java"
+    ......
+
+    //获取service状态
+    public ServiceState getServiceState() {
+        return mActivePhone.getServiceState();
+    }
+    //获取celllocation
+    public CellLocation getCellLocation() {
+        return mActivePhone.getCellLocation();
+    }
+    ......
+    //注册通话状态监听
+    public void registerForPreciseCallStateChanged(Handler h, int what, Object obj) {
+        mActivePhone.registerForPreciseCallStateChanged(h, what, obj);
+    }
+    //取消注册
+    public void unregisterForPreciseCallStateChanged(Handler h) {
+        mActivePhone.unregisterForPreciseCallStateChanged(h);
+    }
+    ......
+}}}
+
+上面介绍了关于Phone的几个类及其他们之间的关系，下面以UML类图的形式来展示他们之间的关系
 
 = 公开包 =
 可以被第三方telephony应用使用，用于获取手机和网络信息，如童话状态，漫游状态，运营商名称等。

@@ -8,6 +8,10 @@ google将telephony framework的实现放在了两个java包中：
 * 内部包：frameworks/base/telephony/java/com/android/internal/telephony 
 * 公开包：frameworks/base/telephony/com/android/telephony
 
+从网上找到一张telephony框架结构图^1^，很有帮助：
+
+{{../../../public/images/telephoney_framewoks_relations.jpg}}
+
 = 内部包 =
 支持所有的telephony功能,只能被Android自带的telephoney应用使用－Phone.apk
 内部包中包括所有telephony功能实现类，我们通过Phone.java作为引子进行分析：
@@ -168,13 +172,13 @@ PhoneBase中定义了几个重要的成员变量
 - CDMAPhone实现类：framework/base/telephony/com/android/internal/telephony/cdma/CDMAPhone.java
 
 下面以GSMPhone为例来分析
-== `GSMPhone.java` ==
+`=== `GSMPhone.java` ===`
 [[http://www.oschina.net/code/explore/android-4.0.1/telephony/java/com/android/internal/telephony/gsm/GSMPhone.java|android源码]]
 GSMPhone继承自PhoneBase抽象类，是GSM网络模式Phone的具体实现，上面提到的重要成员变量和抽象方法都在这个类中实现，由于涉及的内容太多，详细内容放在[[android_telephony_gsmphone|GSMPhone详细分析]]中。
 
 上面介绍了与Phone相关的主要类，他们在实际应用中又是如何被App创建和使用的？这就用到了下面介绍的类：PhoneFactory。
 
-== PhoneFactory.java ==
+`=== PhoneFactory.java ===`
 PhoneFactory是一个工厂类，上层应用使用该类的静态方法makeDefaultPhones()根据系统设定的网络模式来实例化对应的Phone对象
 
 {{{class="brush: java"
@@ -305,7 +309,7 @@ PhoneFactory是一个工厂类，上层应用使用该类的静态方法makeDefa
 
 PhoneFactory工厂类很简单，只是提供了创建默认Phone对象和获取不同Phone对象的静态方法，在根据网络模式创建默认Phone对象的时候，又用到了`PhoneProxy`类。
 
-== PhoneProxy.java ==
+`=== PhoneProxy.java ===`
 
 PhoneProxy类是一个代理类，用于屏蔽Phone对象的实现细节，使上层应用使用时，不必关系实际的网络模式。
 
@@ -409,7 +413,13 @@ PhoneProxy在构造时，使用了具体Phone对象的成员变量构造自己�
     ......
 }}}
 
-上面介绍了关于Phone的几个类及其他们之间的关系，下面以UML类图的形式来展示他们之间的关系
+上面介绍了关于Phone的几个类及其他们之间的关系，下面以UML类图^2^的形式来展示他们之间的关系
+
+{{../../../public/images/phone_classes_relationship.jpg}} 
 
 = 公开包 =
 可以被第三方telephony应用使用，用于获取手机和网络信息，如童话状态，漫游状态，运营商名称等。
+
+
+= 参考文档 =
+

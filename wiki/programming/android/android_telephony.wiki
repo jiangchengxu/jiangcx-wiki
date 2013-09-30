@@ -417,6 +417,11 @@ PhoneProxy在构造时，使用了具体Phone对象的成员变量构造自己�
 
 {{../../../public/images/phone_classes_relationship.jpg}} 
 
+在了解了这几个类的作用及关系之后，我们再深入一步，了解这些类是如何做到与rild守护进程交互，如何将命令发送到modem并对modem上报的信息及时相应的?
+
+从上面的分析知道，最终与rild进程交互的是Phone的具体实现类，这里我们以GSMPhone作为引子，通过分析它来解释上面的疑问。
+
+请看[[android_telephony_gsmphone|GSMPhone详细分析]]
 = 公开包 =
 可以被第三方telephony应用使用，用于获取手机和网络信息，如童话状态，漫游状态，运营商名称等。
 

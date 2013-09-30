@@ -1,1 +1,56 @@
-GSMPhone详细分析
+= GSMPhone详细分析 =
+
+从前面的分析我们可以看到，PhoneFactory根据实际的网络类型来创建对应的Phone类型，在实例化GSMPhone时，创建与电话功能相关的各个功能模块：
+
+GSMPhone.java
+
+{{{class="brush: java"
+    public
+    GSMPhone (Context context, CommandsInterface ci, PhoneNotifier notifier, boolean unitTestMode) {
+        super(notifier, context, ci, unitTestMode);
+
+        ......
+
+        //设置Phone的类型为GSM
+        mCM.setPhoneType(Phone.PHONE_TYPE_GSM);
+        //创建电话相关的各个模块
+        mCT = new GsmCallTracker(this);
+        mSST = new GsmServiceStateTracker (this);
+        mSMS = new GsmSMSDispatcher(this, mSmsStorageMonitor, mSmsUsageMonitor);
+        mIccFileHandler = new SIMFileHandler(this);
+        mIccRecords = new SIMRecords(this);
+        mDataConnectionTracker = new GsmDataConnectionTracker (this);
+        mIccCard = new SimCard(this);
+        ......
+        mStkService = CatService.getInstance(mCM, mIccRecords, mContext, mIccFileHandler, mIccCard);
+        //注册事件响应
+        mCM.registerForAvailable(this, EVENT_RADIO_AVAILABLE, null);
+        mIccRecords.registerForRecordsLoaded(this, EVENT_SIM_RECORDS_LOADED, null);
+        mCM.registerForOffOrNotAvailable(this, EVENT_RADIO_OFF_OR_NOT_AVAILABLE, null);
+        mCM.registerForOn(this, EVENT_RADIO_ON, null);
+        mCM.setOnUSSD(this, EVENT_USSD, null);
+        mCM.setOnSuppServiceNotification(this, EVENT_SSN, null);
+        mSST.registerForNetworkAttached(this, EVENT_REGISTERED_TO_NETWORK, null);
+
+        ......
+        //Change the system property
+        SystemProperties.set(TelephonyProperties.CURRENT_ACTIVE_PHONE,
+                new Integer(Phone.PHONE_TYPE_GSM).toString());
+    }
+}}}
+
+可以看到GSMPhone的实现方式非常精妙，将电话各个功能模块化,由各个模块负责具体的功能:
+- GsmCallTracker            负责通话功能实现和管理通话状态
+- GsmServiceStateTracker    负责数据上网功能实现和管理数据服务状态
+- GsmSMSDispatcher          负责短信发送接受
+- SIMFileHandler            负责SIM卡文件管理
+- SIMRecords                负责SIM卡记录管理
+- GsmDataConnectionTracker  负责数据链接管理
+- SimCard                   负责Sim卡管理 
+- CommandsInterface         负责与rild进程交互,将上层命令通过socket发送给rild并接受反馈信息
+- PhoneNotifier             负责将信息发送到framework层
+- CatService                负责Cat服务
+
+最后注册部分事件监听。
+
+

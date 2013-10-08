@@ -143,7 +143,7 @@ public abstract class PhoneBase extends Handler implements Phone {
     }
 }}}
 
-在这里，我们接触到了telephony framework中最重要的对象`mCM`，这是一个CommondsInterface接口对象，对他的分析会在下面说明，现在之需要知道PhonbBase通过该对象发送命令给BP并接收BP发送回来的信息。
+在这里，我们接触到了telephony framework中最重要的对象`mCM`，这是一个CommondsInterface接口对象，对他的分析会在下面说明，现在只需要知道PhonbBase通过该对象发送命令给BP并接收BP发送回来的信息。
 
 PhoneBase中定义了几个重要的成员变量
 {{{class="brush: java"

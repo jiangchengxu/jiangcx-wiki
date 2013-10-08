@@ -1,3 +1,6 @@
+%template code_3
+%toc
+
 = GSMPhone详细分析 =
 
 从前面的分析我们可以看到，PhoneFactory根据实际的网络类型来创建对应的Phone类型，在实例化GSMPhone时，创建与电话功能相关的各个功能模块：
@@ -53,4 +56,80 @@ GSMPhone.java
 
 最后注册部分事件监听。
 
+可以看出，GSMPhone支持的所有功能，最后都由各个功能模块负责了，下面以手动选择网络模式作为例子分析：
+{{{class="brush: java"
+    public void
+    selectNetworkManually(OperatorInfo network,
+            Message response) {
+        //将参数重新封装为NetworkSelectiMessage对象
+        NetworkSelectMessage nsm = new NetworkSelectMessage();
+        nsm.message = response; //保存最初的请求Message
+        nsm.operatorNumeric = network.getOperatorNumeric();
+        nsm.operatorAlphaLong = network.getOperatorAlphaLong();
 
+        
+        //GSMPhone本身也是一个handler，这里创建了一个EVENT_SET_NETWORK_MANUAL_COMPLETE,将请求再次封装，再次封装的原因，下面会解释。
+        Message msg = obtainMessage(EVENT_SET_NETWORK_MANUAL_COMPLETE, nsm);
+        //将请求通过CommandsInterface对象发送出去
+        mCM.setNetworkSelectionModeManual(network.getOperatorNumeric(), msg);
+    }
+    //GSMPhone自身对EVENT_SET_NETWORK_MANUAL_COMPLETE事件进行处理
+    @Override
+    public void handleMessage (Message msg) {
+        AsyncResult ar;
+        Message onComplete;
+
+        switch (msg.what) {
+            ......
+            // handle the select network completion callbacks.
+            case EVENT_SET_NETWORK_MANUAL_COMPLETE:
+            case EVENT_SET_NETWORK_AUTOMATIC_COMPLETE:
+                //具体的处理
+                handleSetSelectNetwork((AsyncResult) msg.obj);
+                break;
+
+            ......
+             default:
+                 super.handleMessage(msg);
+        }
+    }
+     
+    private void handleSetSelectNetwork(AsyncResult ar) {
+        // look for our wrapper within the asyncresult, skip the rest if it
+        // is null.
+        if (!(ar.userObj instanceof NetworkSelectMessage)) {
+            if (LOCAL_DEBUG) Log.d(LOG_TAG, "unexpected result from user object.");
+            return;
+        }
+
+        NetworkSelectMessage nsm = (NetworkSelectMessage) ar.userObj;
+
+        // found the object, now we send off the message we had originally
+        // attached to the request.
+        if (nsm.message != null) {
+            //将最初的Message发送出去
+            AsyncResult.forMessage(nsm.message, ar.result, ar.exception);
+            nsm.message.sendToTarget();
+        }
+
+        //这里我们会看到系统对该请求再次封装的原因：因为系统需要保存网络信息。如果对处理结果不感兴趣，也就无需多次封装了。
+        // open the shared preferences editor, and write the value.
+        // nsm.operatorNumeric is "" if we're in automatic.selection.
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
+        SharedPreferences.Editor editor = sp.edit();
+        editor.putString(NETWORK_SELECTION_KEY, nsm.operatorNumeric);
+        editor.putString(NETWORK_SELECTION_NAME_KEY, nsm.operatorAlphaLong);
+
+        // commit and log the result.
+        if (! editor.commit()) {
+            Log.e(LOG_TAG, "failed to commit network selection preference");
+        }
+
+    }
+}}}
+
+
+简单的了解了GSMPhone的处理流程之后，我们对各个组成模块进行详细分析：
+
+== CommandsInterface ==
+CommandsInterface接口定义了所有可以与rild 守护进程进行交互的操作，也是telephony framework层可以使用的所有接口，具体的分析请看[[android_rilj|android RILJ实现]]

@@ -1,0 +1,406 @@
+%template code_3
+%toc
+
+= Android RIL实现－－RILJ篇 =
+
+RILJ是Android RIL实现中的java实现，定义了一套可以同RILD通信的命令规范，通过这些命令，将Framework层的命令下发给RILD守护进程并将RILD上报的信息反馈给Telephony Framework层。
+
+RILJ的类架构与Phone的类架构很相似，包括CommandsInterface接口，BaseCommands抽象类和RIL类。
+
+== CommandsInterface.java ==
+CommandsInterface是RILJ定义的接口规范，Telephony Framework通过该接口的实现与rild进程交互。
+== BaseCommands.java ==
+BaseCommands是一个抽象类，与PhoneBase类在Phone类架构中的功能相同，主要负责实现CommandsInterface接口中的事件注册、取消功能的实现，代码与PhoneBase相似。这里不再赘述。
+== RIL.java ==
+这是我们这篇介绍的重点。
+
+RIL是CommandsInterface接口的具体实现，负责具体的rild交互实现。PhoneApp在使用PhoneFactory构建PPhone具体实例的时候就会根据使用的网络模式构建RIL对象。
+{{{class="brush: java"
+    public static void makeDefaultPhone(Context context) {
+        synchronized(Phone.class) {
+            ......
+                //reads the system properties and makes commandsinterface
+                sCommandsInterface = new RIL(context, networkMode, cdmaSubscription);
+
+            int phoneType = getPhoneType(networkMode);
+            if (phoneType == Phone.PHONE_TYPE_GSM) {
+                Log.i(LOG_TAG, "Creating GSMPhone");
+                sProxyPhone = new PhoneProxy(new GSMPhone(context,
+                            sCommandsInterface, sPhoneNotifier));
+            } else if (phoneType == Phone.PHONE_TYPE_CDMA) {
+                switch (BaseCommands.getLteOnCdmaModeStatic()) {
+                    case Phone.LTE_ON_CDMA_TRUE:
+                        Log.i(LOG_TAG, "Creating CDMALTEPhone");
+                        sProxyPhone = new PhoneProxy(new CDMALTEPhone(context,
+                                    sCommandsInterface, sPhoneNotifier));
+                        break;
+                    case Phone.LTE_ON_CDMA_FALSE:
+                    default:
+                        Log.i(LOG_TAG, "Creating CDMAPhone");
+                        sProxyPhone = new PhoneProxy(new CDMAPhone(context,
+                                    sCommandsInterface, sPhoneNotifier));
+                        break;
+                }
+            }
+
+            sMadeDefaults = true;
+        }
+    }
+}}}
+下面我们来看具体的RIL.java实现
+
+RIL.java中包含4个类，主类是RIL， 辅助类RILRequest， 内部类RILSender和RILReceiver，下面我们对这写类的作用和实现详细分析。
+
+=== RILRequest ===
+RILRequest代表一个RIL请求，发送给rild的命令最后都会封装成一个RILRequest对象，RILRequest内部维护了一个`MAX_POOL_SIZE`大小的请求池，通过obtain()和release()方法从请求池中获取和放回一个请求。
+{{{class="brush: java"
+    static RILRequest obtain(int request, Message result) {
+        RILRequest rr = null;
+
+        //从请求池中获取请求
+        synchronized(sPoolSync) {
+            if (sPool != null) {
+                rr = sPool;
+                sPool = rr.mNext;
+                rr.mNext = null;
+                sPoolSize--;
+            }
+        }
+
+        //如果请求池中没有可用的请求，则构建一个新的请求
+        if (rr == null) {
+            rr = new RILRequest();
+        }
+
+        //设置请求的序列号
+        synchronized(sSerialMonitor) {
+            rr.mSerial = sNextSerial++;
+        }
+        rr.mRequest = request; //设置请求的request，这个request必须是RIL_REQUEST_*格式
+        rr.mResult = result; //设置响应该请求处理结果的handler
+        rr.mp = Parcel.obtain();
+
+        if (result != null && result.getTarget() == null) {
+            throw new NullPointerException("Message target must not be null");
+        }
+
+        // first elements in any RIL Parcel
+        rr.mp.writeInt(request);    //将请求信息打包
+        rr.mp.writeInt(rr.mSerial); //将请求序列号打包
+
+        return rr;
+    }
+
+    void release() {
+        synchronized (sPoolSync) {
+        //如果当前请求池大小小于MAX_POOL_SIZE,则将释放的请求放入请求池。
+            if (sPoolSize < MAX_POOL_SIZE) {
+                this.mNext = sPool;
+                sPool = this;
+                sPoolSize++;
+                mResult = null;
+            }
+        }
+    }
+    
+    //当请求处理出现异常时，使用该函数将错误信息发送回初始请求的处理handler
+    void
+    onError(int error, Object ret) {
+        CommandException ex;
+
+        ex = CommandException.fromRilErrno(error);
+
+        if (mResult != null) {
+            //AsyncResult是一个工具类，用于封装RILD反馈的信息
+            AsyncResult.forMessage(mResult, ret, ex);
+            mResult.sendToTarget();
+        }
+
+        //异常时mp已经没有用了，直接回收。
+        if (mp != null) {
+            mp.recycle();
+            mp = null;
+        }
+    }
+}}}
+
+接下来我们会看到，RILJ与RILD之间的通信使用的是异步方式，RILJ将请求发送到RILD之后，并不等待处理RILD的反馈就直接返回了，那么，RILD处理完请求并将结果反馈到RILJ后，如何知道是那一条请求的处理结果呢？
+
+答案就是RILRequest中的mSerial参数，每条RIL请求都有一个唯一的序列号，并与请求的实际内容一起发送给RILD，RILD在处理结束后，将该序列号与处理结果一起发送给RILJ，根据这个序列号，在请求列表中找到对应的RIL请求。这个流程我们后面会看到。
+
+=== RIL类 ===
+RIL类继承自BaseCommands并实现CommandsInterface接口，在RIL构造时，会创建两个工作线程SenderThread和ReceiverThread,由这两个工作线程的名字也可以看出，一个用于发送请求，一个用于处理响应。RIL所有与AT指令相关的命令都由这两个线程处理。
+
+下面我们分析RIL的构造函数：
+{{{class="brush: java"
+    public RIL(Context context, int preferredNetworkType, int cdmaSubscription) {
+        super(context);
+        
+        mCdmaSubscription  = cdmaSubscription;
+        mPreferredNetworkType = preferredNetworkType;
+        mPhoneType = RILConstants.NO_PHONE;
+
+        //创建wakelock
+        PowerManager pm = (PowerManager)context.getSystemService(Context.POWER_SERVICE);
+        mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, LOG_TAG);
+        mWakeLock.setReferenceCounted(false);
+        mWakeLockTimeout = SystemProperties.getInt(TelephonyProperties.PROPERTY_WAKE_LOCK_TIMEOUT,
+                DEFAULT_WAKE_LOCK_TIMEOUT);
+        mRequestMessagesPending = 0;    //待发送的请求计数
+        mRequestMessagesWaiting = 0;    //等待处理结果的请求计数
+
+        //创建一个RILSender名称的Handler线程
+        mSenderThread = new HandlerThread("RILSender");
+        mSenderThread.start();
+
+        //将RILSender线程与RILSender关联
+        Looper looper = mSenderThread.getLooper();
+        mSender = new RILSender(looper);
+
+        //判断是否支持移动网络
+        ConnectivityManager cm = (ConnectivityManager)context.getSystemService(
+                Context.CONNECTIVITY_SERVICE);
+        if (cm.isNetworkSupported(ConnectivityManager.TYPE_MOBILE) == false) {
+            //不支持移动网络，则不开启RILReceiver
+            riljLog("Not starting RILReceiver: wifi-only");
+        } else {
+            riljLog("Starting RILReceiver");
+            //创建一个RILReceiver线程，用于接受RILD发回的数据
+            mReceiver = new RILReceiver();
+            mReceiverThread = new Thread(mReceiver, "RILReceiver");
+            mReceiverThread.start();
+
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(Intent.ACTION_SCREEN_ON);
+            filter.addAction(Intent.ACTION_SCREEN_OFF);
+            context.registerReceiver(mIntentReceiver, filter);
+        }
+    }
+}}}
+
+RIL类中有三个重要的属性：
+
+1、`int mRequestMessagesPending;`
+    待发送的请求计数，在调用EVENT_SEND命令之前计数增加，在处理EVENT_SEND时计数减少，当发生WAKE_LOCK_TIMEOUT超时时清0。
+
+2、`int mRequestMessagesWaiting;`
+    已发送但等待响应的请求计数，在发送请求时计数增加，处理响应的时候计数减少，他的大小应该与mRequestsList大小相同，除非发生了WAKE_LOCK_TIMEOUT超时。
+
+3、`ArrayList<RILRequest> mRequestsList = new ArrayList<RILRequest>();`
+    用于保存等待响应的请求列表，当一个请求已经发送，开始等待响应时，将该请求添加到该列表
+
+后面的分析中我们会看到这三个重要属性的用法。
+
+RIL中其他与AT指令相关的功能，基本都是通过这两个线程来完成,比如：
+{{{class="brush: java"
+    public void
+    supplyIccPinForApp(String pin, String aid, Message result) {
+        RILRequest rr = RILRequest.obtain(RIL_REQUEST_ENTER_SIM_PIN, result);
+
+        rr.mp.writeInt(2);
+        rr.mp.writeString(pin);
+        rr.mp.writeString(aid);
+
+        send(rr);
+    }
+}}} 
+其他功能函数与这个类似，到这里，我们就可以看出发送到rild的请求内容的格式了，注意，这个只是内容的格式，还不是真正通过socket发送的数据,真正发送的数据马上就会看到了。
+请求内容格式:
+
++--------+-----------+---------+
+| 请求ID |请求序列号 |请求参数 |
++--------+-----------+---------+
+
+send()函数将请求封装为EVENT_SEND消息，交由RILSender处理
+
+{{{class="brush: java"                                        
+    private void
+    send(RILRequest rr) {
+        Message msg;
+
+        //mSocket这里是rild socket,mSocket会在RILReceiver线程中创建
+        if (mSocket == null) {
+            rr.onError(RADIO_NOT_AVAILABLE, null);
+            rr.release();
+            return;
+        }
+
+        //创建一个EVENT_SEND的message,mSender就是上面的RILSender
+        msg = mSender.obtainMessage(EVENT_SEND, rr);
+
+        acquireWakeLock();
+
+        //将message发送到mSender中处理
+        msg.sendToTarget();
+    }
+}}}
+
+这里有一个重要的函数,acquireWakeLock(),可不要被他的名字迷惑，他可不仅仅只是获取wakelock这么简单。
+{{{class="brush: java"
+    private void
+    acquireWakeLock() {
+        synchronized (mWakeLock) {
+            mWakeLock.acquire();    //获取一个PARTIAL_WAKE_LOCK
+            mRequestMessagesPending++;  //mRequestMessagesPending＋1
+
+            //定义一个定时器，到时发送EVENT_WAKE_LOCK_TIMEOUT到RILSender
+            mSender.removeMessages(EVENT_WAKE_LOCK_TIMEOUT);
+            Message msg = mSender.obtainMessage(EVENT_WAKE_LOCK_TIMEOUT);
+            mSender.sendMessageDelayed(msg, mWakeLockTimeout);
+        }
+    }
+    //mWakeLockTimeout默认为
+    private static final int DEFAULT_WAKE_LOCK_TIMEOUT = 60000;
+}}}
+acquireWakeLock()做了三个工作：
+# 获取PARTIAL_WAKE_LOCK，使CPU不进入休眠
+# 使待发送请求计数+1
+# 定义一个超时计时器，到时发送EVENT_WAKE_LOCK_TIMEOUT,避免陷入死锁
+
+做好这些工作后，就可以到RILSender中处理EVENT_SEND事件来发送请求了。
+
+=== RILSender ===
+RILSender 是一个实现了Runnable接口的Handler子类，所有发送的指令最终都由该handler发送到rild socket
+下面看RILSender的实现：
+{{{class="brush: java"
+    class RILSender extends Handler implements Runnable {
+        public RILSender(Looper looper) {
+            super(looper);
+        }
+
+        // Only allocated once
+        byte[] dataLength = new byte[4];
+
+        //目前Runnable接口并没有特殊处理
+        public void
+        run() {
+            //setup if needed
+        }
+
+
+        //***** Handler implementation
+        @Override public void
+        handleMessage(Message msg) {
+            RILRequest rr = (RILRequest)(msg.obj);
+            RILRequest req = null;
+
+            switch (msg.what) {
+                case EVENT_SEND:
+                    /**
+                     * mRequestMessagePending++ already happened for every
+                     * EVENT_SEND, thus we must make sure
+                     * mRequestMessagePending-- happens once and only once
+                     */
+                    boolean alreadySubtracted = false;
+                    try {
+                        LocalSocket s;
+
+                        s = mSocket;    //mSocket在RILReceiver线程中创建
+
+                        if (s == null) {
+                            //当socket未连接时，发送RADIO_NOT_AVAILABLE错误信息,将请求释放并直接返回
+                            rr.onError(RADIO_NOT_AVAILABLE, null);
+                            rr.release();
+                            if (mRequestMessagesPending > 0)
+                                mRequestMessagesPending--;
+                            alreadySubtracted = true;
+                            return;
+                        }
+
+                        //mRequestsList是RIL中维护的一个RIL请求列表，用于保存已发送并等待处理结果的RIL请求
+                        synchronized (mRequestsList) {
+                            mRequestsList.add(rr);
+                            mRequestMessagesWaiting++;  //待反馈请求计数＋1
+                        }
+
+                        if (mRequestMessagesPending > 0)
+                            mRequestMessagesPending--;  //待发送请求计数-1
+                        alreadySubtracted = true;
+
+                        byte[] data;
+
+                        //将请求内容从Parcel中取出
+                        data = rr.mp.marshall();
+                        rr.mp.recycle();
+                        rr.mp = null;
+
+                        if (data.length > RIL_MAX_COMMAND_BYTES) {
+                            throw new RuntimeException(
+                                    "Parcel larger than max bytes allowed! "
+                                                          + data.length);
+                        }
+
+                        //将数据包的长度以大端表示
+                        dataLength[0] = dataLength[1] = 0;
+                        dataLength[2] = (byte)((data.length >> 8) & 0xff);
+                        dataLength[3] = (byte)((data.length) & 0xff);
+
+                        //通过socket将数据包的长度和数据包发出
+                        s.getOutputStream().write(dataLength);
+                        s.getOutputStream().write(data);
+                    } catch (IOException ex) {
+                        //通过socket发送时出现IO异常处理
+                        //此时请求已经添加到RequestList中，所以根据请求的序列号，从RequestList中删除该请求
+                        req = findAndRemoveRequestFromList(rr.mSerial);
+                        //处理异常请求
+                        if (req != null || !alreadySubtracted) {
+                            rr.onError(RADIO_NOT_AVAILABLE, null);
+                            rr.release();
+                        }
+                    } catch (RuntimeException exc) {
+                        //处理数据长度过长时抛出的运行时异常处理
+                        //此时请求已经添加到RequestList中，所以需要从RequestList中删除该请求
+                        req = findAndRemoveRequestFromList(rr.mSerial);
+                        //处理异常请求
+                        if (req != null || !alreadySubtracted) {
+                            rr.onError(GENERIC_FAILURE, null);
+                            rr.release();
+                        }
+                    } finally {
+                        //当没有待处理的请求和等待处理结果的请求时，使用下面函数取消EVENT_WAKE_LOCK_TIMEOUT超时，并释放mWakeLock。
+                        releaseWakeLockIfDone();
+                    }
+
+                    //异常时，待发送请求计数-1
+                    if (!alreadySubtracted && mRequestMessagesPending > 0) {
+                        mRequestMessagesPending--;
+                    }
+
+                    break;
+
+                case EVENT_WAKE_LOCK_TIMEOUT:
+                    //等待反馈结果超时处理
+                    synchronized (mWakeLock) {
+                        if (mWakeLock.isHeld()) {
+                            if (mRequestMessagesWaiting != 0) {
+                                //将等待反馈结果的请求计数清0，但并不从mRequestList中删除，这样当响应最终到达时，仍然可以找到对应的请求
+                                mRequestMessagesWaiting = 0;
+
+                            }
+                            // mRequestMessagesPending shows how many
+                            // requests are waiting to be sent (and before
+                            // to be added in request list) since star the
+                            // WAKE_LOCK_TIMEOUT timer. Since WAKE_LOCK_TIMEOUT
+                            // is the expected time to get response, all requests
+                            // should already sent out (i.e.
+                            // mRequestMessagesPending is 0 )while TIMEOUT occurs.
+                            if (mRequestMessagesPending != 0) {
+                                Log.e(LOG_TAG, "ERROR: mReqPending is NOT 0 but"
+                                        + mRequestMessagesPending + " at TIMEOUT, reset!");
+                                mRequestMessagesPending = 0;
+
+                            }
+                            mWakeLock.release();
+                        }
+                    }
+                    break;
+            }
+        }
+    }
+}}}
+
+在RILSender的handlerMessage中，涉及到2个重要的属性：
+1. mRequestMessagesPending
+
+2. mRequestMessagesWaiting
+=== RILReceiver ===

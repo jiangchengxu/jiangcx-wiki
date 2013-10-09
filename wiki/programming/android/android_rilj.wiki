@@ -52,7 +52,10 @@ RIL是CommandsInterface接口的具体实现，负责具体的rild交互实现�
 RIL.java中包含4个类，主类是RIL， 辅助类RILRequest， 内部类RILSender和RILReceiver，下面我们对这写类的作用和实现详细分析。
 
 === RILRequest ===
-RILRequest代表一个RIL请求，发送给rild的命令最后都会封装成一个RILRequest对象，RILRequest内部维护了一个`MAX_POOL_SIZE`大小的请求池，通过obtain()和release()方法从请求池中获取和放回一个请求。
+RILRequest代表一个RIL请求，RILJ中AT相关的命令都会通过RILRequest.obtain(...)方法转化为系统支持的RIL_REQUEST_*格式指令，这些指令定义在RILConstants.java中，并且必须与rild中的定义对应，这也是我们开头提到的RILJ与RILD通信规范，方法最后会生成一个RILRequest对象，该对象会被发送到RILSender线程进行解析并通过rild scoket发送出去。
+
+RILRequest内部维护了一个`MAX_POOL_SIZE`大小的请求池，通过obtain()和release()方法从请求池中获取和放回一个请求。
+
 {{{class="brush: java"
     static RILRequest obtain(int request, Message result) {
         RILRequest rr = null;
@@ -211,6 +214,8 @@ RIL中其他与AT指令相关的功能，基本都是通过这两个线程来完
 | 请求ID |请求序列号 |请求参数 |
 +--------+-----------+---------+
 
+*这里的请求ID我们前面已经说过了，必须是`RILConstants.java`中定义的RIL_REQUEST_*格式。*
+
 send()函数将请求封装为EVENT_SEND消息，交由RILSender处理
 
 {{{class="brush: java"                                        
@@ -230,7 +235,7 @@ send()函数将请求封装为EVENT_SEND消息，交由RILSender处理
 
         acquireWakeLock();
 
-        //将message发送到mSender中处理
+        //将请求交给RILSender处理
         msg.sendToTarget();
     }
 }}}
@@ -240,7 +245,7 @@ send()函数将请求封装为EVENT_SEND消息，交由RILSender处理
     private void
     acquireWakeLock() {
         synchronized (mWakeLock) {
-            mWakeLock.acquire();    //获取一个PARTIAL_WAKE_LOCK
+            mWakeLock.acquire();    //获取一个PARTIAL_WAKE_LOCK休眠锁
             mRequestMessagesPending++;  //mRequestMessagesPending＋1
 
             //定义一个定时器，到时发送EVENT_WAKE_LOCK_TIMEOUT到RILSender
@@ -377,19 +382,14 @@ RILSender 是一个实现了Runnable接口的Handler子类，所有发送的指�
                                 mRequestMessagesWaiting = 0;
 
                             }
-                            // mRequestMessagesPending shows how many
-                            // requests are waiting to be sent (and before
-                            // to be added in request list) since star the
-                            // WAKE_LOCK_TIMEOUT timer. Since WAKE_LOCK_TIMEOUT
-                            // is the expected time to get response, all requests
-                            // should already sent out (i.e.
-                            // mRequestMessagesPending is 0 )while TIMEOUT occurs.
+                            //因为每次在发送请求的时候，都会重新设定EVENT_WAKE_LOCK_TIMEOUT,所以在EVENT_WAKE_LOCK_TIMEOUT真正触发时，所有的请求必然已经发送出去，处于等待RILSender发送或者接收rild响应的状态时出现异常，此时强制mRequestMessagesPending计数清0
                             if (mRequestMessagesPending != 0) {
                                 Log.e(LOG_TAG, "ERROR: mReqPending is NOT 0 but"
                                         + mRequestMessagesPending + " at TIMEOUT, reset!");
                                 mRequestMessagesPending = 0;
 
                             }
+                            //释放休眠锁
                             mWakeLock.release();
                         }
                     }
@@ -399,8 +399,103 @@ RILSender 是一个实现了Runnable接口的Handler子类，所有发送的指�
     }
 }}}
 
-在RILSender的handlerMessage中，涉及到2个重要的属性：
-1. mRequestMessagesPending
+总体来说，RILSender是RILJ层控制发送请求的工作线程，所有RILJ下发的指令，最后都封装为RILRequest由RILSender线程发送到rild socket。
 
-2. mRequestMessagesWaiting
+上面分析完了RIL如何发送指令，下面接着来分析RILJ如何接受和处理RILD发送过来的信息。
+
 === RILReceiver ===
+RILReceiver用于实时监控rild socket,当从rild socket接收到数据后，通过对数据进行解析后，调用相应的处理函数。
+
+从RIL的构造函数中，开启了一个名为RILReceiver的工作线程。该线程是一个死循环，连接rild socket后，等待rild socket 中数据到达，一旦检测到socket中有数据，则从socket 中将数据全部读取，然后对信息进行分类，调用相应的回调函数，然后释放当前socket，重新进行上述循环。
+
+下面我们结合代码来分析：
+{{{class="brush: java"
+    class RILReceiver implements Runnable {
+        byte[] buffer;
+
+        RILReceiver() {
+            buffer = new byte[RIL_MAX_COMMAND_BYTES];
+        }
+
+        public void
+        run() {
+            int retryCount = 0;
+
+            try {for (;;) {
+                LocalSocket s = null;
+                LocalSocketAddress l;
+                //创建一个SOCKET_NAME_RIL的客户端socket,并连接服务器socket
+                //这里SOCKET_NAME_RIL定义为
+                //static final String SOCKET_NAME_RIL = "rild";
+                
+                try {
+                    s = new LocalSocket();
+                    l = new LocalSocketAddress(SOCKET_NAME_RIL,
+                            LocalSocketAddress.Namespace.RESERVED);
+                    s.connect(l);
+                } catch (IOException ex){
+                    ......
+                }
+
+                retryCount = 0;
+
+                mSocket = s;    //给mSocket赋值,供RILSender使用
+
+                int length = 0;
+                try {
+                    InputStream is = mSocket.getInputStream();
+
+                    for (;;) {
+                        Parcel p;
+                        //从socket中读取数据，此方法会一直堵塞，知道socket中有数据或读到socket结尾
+                        length = readRilMessage(is, buffer);
+
+                        //当读到socket结尾时，返回-1,退出此次读取
+                        if (length < 0) {
+                            // End-of-stream reached
+                            break;
+                        }
+
+                        //对读取的数据进行反编码
+                        p = Parcel.obtain();
+                        p.unmarshall(buffer, 0, length);
+                        p.setDataPosition(0);
+
+                        //对数据进行处理
+                        processResponse(p);
+                        p.recycle();
+                    }
+                } catch (java.io.IOException ex) {
+                    Log.i(LOG_TAG, "'" + SOCKET_NAME_RIL + "' socket closed",
+                          ex);
+                } catch (Throwable tr) {
+                    Log.e(LOG_TAG, "Uncaught exception read length=" + length +
+                        "Exception:" + tr.toString());
+                }
+
+                Log.i(LOG_TAG, "Disconnected from '" + SOCKET_NAME_RIL
+                      + "' socket");
+
+                setRadioState (RadioState.RADIO_UNAVAILABLE);
+
+                try {
+                    mSocket.close();
+                } catch (IOException ex) {
+                }
+
+                mSocket = null;
+                RILRequest.resetSerial();
+
+                // Clear request list on close
+                clearRequestsList(RADIO_NOT_AVAILABLE, false);
+            }} catch (Throwable tr) {
+                Log.e(LOG_TAG,"Uncaught exception", tr);
+            }
+
+            /* We're disconnected so we don't know the ril version */
+            notifyRegistrantsRilConnectionChanged(-1);
+        }
+    }
+}}}
+
+

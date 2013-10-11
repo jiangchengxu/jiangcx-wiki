@@ -1,0 +1,171 @@
+%template code_3
+
+= Android CallTracker篇 =
+
+CallHandler是Telephony Framework中用于管理通话状态的策略类。
+从他的定义来看，他是一个抽象类，继承自Handler,肯定会通过CommandInterface注册部分事件侦听。
+
+下面来看看他的实现：
+CallTracker.java
+{{{class="brush: java"
+public abstract class CallTracker extends Handler {
+    ......
+    //CallTracker使用CommandInterface实例与RILD交互
+    public CommandsInterface cm;
+    ......
+    
+    protected void pollCallsWhenSafe() {
+        needsPoll = true;
+
+        if (checkNoOperationsPending()) {
+            lastRelevantPoll = obtainMessage(EVENT_POLL_CALLS_RESULT);
+            //使用getCurrentCalls(）获取当前通话详情
+            cm.getCurrentCalls(lastRelevantPoll);
+        }
+    }
+   
+    ......
+    //CallTracker定义的几个抽象方法
+    //由子类实现 
+    protected abstract void handlePollCalls(AsyncResult ar);
+    //定义Handler的抽象方法
+    public abstract void handleMessage (Message msg);
+    //公开的注册方法，也由子类实现
+    public abstract void registerForVoiceCallStarted(Handler h, int what, Object obj);
+    public abstract void unregisterForVoiceCallStarted(Handler h);
+    public abstract void registerForVoiceCallEnded(Handler h, int what, Object obj);
+    public abstract void unregisterForVoiceCallEnded(Handler h);
+}
+}}}
+
+CallTracker中并没有具体的实现细节，我们主要看看他是怎么获取通话详情的。
+
+CallTracker使用pollCallsWhenSaft(）来轮询当前的通话列表，该方法使用cm.getCurrentCalls()向RILD发送获取通话列表的指令。
+RIL.java
+{{{class="brush: java"
+    public void
+    getCurrentCalls (Message result) {
+        //向RILD发送RIL_REQUEST_GET_CURRENT_CALLS请求
+        RILRequest rr = RILRequest.obtain(RIL_REQUEST_GET_CURRENT_CALLS, result);
+        send(rr);
+    }
+}}}
+
+返回的数据有RILReceiver处理：
+{{{class=""brush: java"
+     ......
+     case RIL_REQUEST_GET_CURRENT_CALLS: ret =  responseCallList(p); break;
+     ......
+}}}
+最终的处理交给responseCallList(）来处理，不清楚RIL实现方式的可以去翻[[android_rilj|Android RILJ实现]]
+接着看看responseCallList(）的实现：
+{{{class="brush: java
+    private Object
+    responseCallList(Parcel p) {
+        int num;
+        int voiceSettings;
+        ArrayList<DriverCall> response;
+        DriverCall dc;
+
+        num = p.readInt();
+        //使用DriverCall列表保存当前的通话列表
+        response = new ArrayList<DriverCall>(num);
+
+        //将每一个通话封装为一个DriverCall对象
+        for (int i = 0 ; i < num ; i++) {
+            dc = new DriverCall();
+            //从这里可也看出，RILJ使用AT+CLCC指令来获取通话列表
+            dc.state = DriverCall.stateFromCLCC(p.readInt());
+            dc.index = p.readInt();
+            dc.TOA = p.readInt();
+            dc.isMpty = (0 != p.readInt());
+            dc.isMT = (0 != p.readInt());
+            dc.als = p.readInt();
+            voiceSettings = p.readInt();
+            dc.isVoice = (0 == voiceSettings) ? false : true;
+            dc.isVoicePrivacy = (0 != p.readInt());
+            dc.number = p.readString();
+            int np = p.readInt();
+            dc.numberPresentation = DriverCall.presentationFromCLIP(np);
+            dc.name = p.readString();
+            dc.namePresentation = p.readInt();
+            int uusInfoPresent = p.readInt();
+            if (uusInfoPresent == 1) {
+                dc.uusInfo = new UUSInfo();
+                dc.uusInfo.setType(p.readInt());
+                dc.uusInfo.setDcs(p.readInt());
+                byte[] userData = p.createByteArray();
+                dc.uusInfo.setUserData(userData);
+            } else {
+                riljLogv("Incoming UUS : NOT present!");
+            }
+
+            // Make sure there's a leading + on addresses with a TOA of 145
+            dc.number = PhoneNumberUtils.stringFromStringAndTOA(dc.number, dc.TOA);
+
+            response.add(dc);
+
+            if (dc.isVoicePrivacy) {
+                mVoicePrivacyOnRegistrants.notifyRegistrants();
+                riljLog("InCall VoicePrivacy is enabled");
+            } else {
+                mVoicePrivacyOffRegistrants.notifyRegistrants();
+                riljLog("InCall VoicePrivacy is disabled");
+            }
+        }
+
+        Collections.sort(response);
+
+        return response;
+    }
+    
+}}}
+函数很简单，将每条通话信息封装到DriverCall对象中，然后将这个DriverCall列表返回，我们看看DriverCall中包含着哪些信息：
+{{{class="brush: java
+public class DriverCall implements Comparable {
+    //当前通话的6种状态
+    public enum State {
+        ACTIVE,     //激活
+        HOLDING,    //保持
+        DIALING,    //拨打（仅主叫）
+        ALERTING,   //振铃（仅主叫）
+        INCOMING,   //来电（仅被叫）
+        WAITING;    //等待（仅被叫）
+        // If you add a state, make sure to look for the switch()
+        // statements that use this enum
+    }
+
+    public int index;   //通话的标识符
+    public boolean isMT;    //呼入呼出标识
+    public State state;     //通话状态
+    public boolean isMpty;  //是否是三方通话
+    public String number;   //号码
+    public int TOA;         //地址字节的格式类型（129-非国际号码，145-国际号码）
+    public boolean isVoice; //是否是语音通话
+    public boolean isVoicePrivacy;//是否开启语音加密
+    public int als;
+    public int numberPresentation;
+    public String name;
+    public int namePresentation;
+    public UUSInfo uusInfo;
+
+    //获取通话的状态
+    public static State
+    stateFromCLCC(int state) throws ATParseEx {
+        switch(state) {
+            case 0: return State.ACTIVE;
+            case 1: return State.HOLDING;
+            case 2: return State.DIALING;
+            case 3: return State.ALERTING;
+            case 4: return State.INCOMING;
+            case 5: return State.WAITING;
+            default:
+                throw new ATParseEx("illegal call state " + state);
+        }
+    }
+}
+}}}
+
+父类看完了，我们看看具体网络模式下的实现：GsmCallTracker.java
+
+GsmCallTracker.java

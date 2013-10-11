@@ -26,3 +26,7 @@ NT_STATUS_ACCESS_DENIED making remote directory \share1
 == 4，除了使用smbclient，还可以通过mount和smbcount挂载远程共享文件夹 ==
 mount -t smbfs -o  username=administrator,password=123456 //192.168.0.1/tmp  /mnt/tmp
 smbmount //192.168.0.1/tmp /mnt/tmp -o username=administrator
+
+== 5,如何get远程文件夹 ==
+smb:\>recurse on
+smb:\>mget 文件夹名称

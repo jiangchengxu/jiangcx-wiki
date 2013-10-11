@@ -406,7 +406,15 @@ RILSender 是一个实现了Runnable接口的Handler子类，所有发送的指�
 === RILReceiver ===
 RILReceiver用于实时监控rild socket,当从rild socket接收到数据后，通过对数据进行解析后，调用相应的处理函数。
 
-从RIL的构造函数中，开启了一个名为RILReceiver的工作线程。该线程是一个死循环，连接rild socket后，等待rild socket 中数据到达，一旦检测到socket中有数据，则从socket 中将数据全部读取，然后对信息进行分类，调用相应的回调函数，然后释放当前socket，重新进行上述循环。
+从RIL的构造函数中，开启了一个名为RILReceiver的工作线程。该线程是一个死循环，其处理流程如下：
+
+# 连接服务器rild socket，
+# 阻塞方式等待rild socket 数据发送过来，
+# 读取socket 中全部的数据,若服务器socket 关闭或者出现IO 异常,则跳至 6,否则执行下一步
+# 对读取的信息进行分类处理，调用相应的回调函数，
+# 重新执行步骤 2 
+# 关闭本地socket,清空请求列表,然后重新执行步骤 1 
+
 
 下面我们结合代码来分析：
 {{{class="brush: java"
@@ -447,10 +455,10 @@ RILReceiver用于实时监控rild socket,当从rild socket接收到数据后，�
 
                     for (;;) {
                         Parcel p;
-                        //从socket中读取数据，此方法会一直堵塞，知道socket中有数据或读到socket结尾
+                        //从socket中读取数据，此方法会一直堵塞，直到socket中有数据或服务器端socket关闭或者出现IO异常
                         length = readRilMessage(is, buffer);
 
-                        //当读到socket结尾时，返回-1,退出此次读取
+                        //当服务器socket关闭时，返回-1
                         if (length < 0) {
                             // End-of-stream reached
                             break;
@@ -473,9 +481,7 @@ RILReceiver用于实时监控rild socket,当从rild socket接收到数据后，�
                         "Exception:" + tr.toString());
                 }
 
-                Log.i(LOG_TAG, "Disconnected from '" + SOCKET_NAME_RIL
-                      + "' socket");
-
+                //服务器socket关闭或出现IO异常时，关闭本地socket并清空请求列表
                 setRadioState (RadioState.RADIO_UNAVAILABLE);
 
                 try {
@@ -498,4 +504,219 @@ RILReceiver用于实时监控rild socket,当从rild socket接收到数据后，�
     }
 }}}
 
+了解了总体的流程后，接着来分析每一个步骤：
+1 使用readRilMessage(...)从服务器socket中读取发送过来的一条完整的RIL信息，每条RIL信息由一个4字节的数据长度（采用小端表示法）和一连串的字节组成。
+{{{class="brush: java"
+    private static int readRilMessage(InputStream is, byte[] buffer)
+            throws IOException {
+        int countRead;
+        int offset;
+        int remaining;
+        int messageLength;
 
+        // First, read in the length of the message
+        offset = 0;
+        remaining = 4;
+        //首先读取4个字节，这4个字节表示socket接下来发送的信息的长度，这也是socket编程常用的格式：数据长度＋数据内容
+        do {
+            countRead = is.read(buffer, offset, remaining);
+
+            if (countRead < 0 ) {
+                Log.e(LOG_TAG, "Hit EOS reading message length");
+                return -1;
+            }
+
+            offset += countRead;
+            remaining -= countRead;
+        } while (remaining > 0);
+
+        //对数据长度重新解析
+        messageLength = ((buffer[0] & 0xff) << 24)
+                | ((buffer[1] & 0xff) << 16)
+                | ((buffer[2] & 0xff) << 8)
+                | (buffer[3] & 0xff);
+
+        // Then, re-use the buffer and read in the message itself
+        offset = 0;
+        remaining = messageLength;
+        //读取真正的信息内容
+        do {
+            countRead = is.read(buffer, offset, remaining);
+
+            if (countRead < 0 ) {
+                Log.e(LOG_TAG, "Hit EOS reading message.  messageLength=" + messageLength
+                        + " remaining=" + remaining);
+                return -1;  //若服务端socket关闭，返回-1
+            }
+
+            offset += countRead;
+            remaining -= countRead;
+        } while (remaining > 0);
+
+        //返回信息真实的长度
+        return messageLength;
+    }
+}}}
+
+这里我们可以看出，RILReader一次只会读取一条RIL信息，如果服务器端连续往socket中放置多个RIL信息，RILReader也会逐条读出。
+
+2 使用processResponse(...)处理获取的信息。服务端在信息的头部加了一个整数来区分当前的信息属于solicited response还是unsolicited response,RILJ通过判断这个参数，对信息进行分类处理
+{{{class="brush: java"
+    private void
+    processResponse (Parcel p) {
+        int type;
+
+        type = p.readInt();
+
+        if (type == RESPONSE_UNSOLICITED) {
+            //处理非请求的回复
+            processUnsolicited (p);
+        } else if (type == RESPONSE_SOLICITED) {
+            //处理请求的回复
+            processSolicited (p);
+        }
+
+        releaseWakeLockIfDone();
+    }
+}}}
+接下来对这两种情况分别分析：
+
+1, 非请求的回复(UNSOLICITED RESPONSE),是客户端未做请求而modem主动上报的回复，比如modem主动上报网络状态变化，通话状态等
+
+{{{class="brush: java"
+    private void
+    processUnsolicited (Parcel p) {
+        int response;
+        Object ret;
+
+        //读取具体的响应命令
+        response = p.readInt();
+
+        //解析反馈的响应结果
+        try {switch(response) {
+            case RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED: ret =  responseVoid(p); break;
+            case RIL_UNSOL_RESPONSE_NEW_SMS: ret =  responseString(p); break;
+            case RIL_UNSOL_RESPONSE_NEW_SMS_ON_SIM: ret =  responseInts(p); break;
+            case RIL_UNSOL_ON_USSD: ret =  responseStrings(p); break;
+            case RIL_UNSOL_NITZ_TIME_RECEIVED: ret =  responseString(p); break;
+            case RIL_UNSOL_SIGNAL_STRENGTH: ret = responseSignalStrength(p); break;
+            case RIL_UNSOL_DATA_CALL_LIST_CHANGED: ret = responseDataCallList(p);break;
+            case RIL_UNSOL_SUPP_SVC_NOTIFICATION: ret = responseSuppServiceNotification(p); break;
+            case RIL_UNSOL_CALL_RING: ret =  responseCallRing(p); break;
+            case RIL_UNSOL_RESPONSE_NEW_BROADCAST_SMS:  ret =  responseRaw(p); break;
+            ......
+            default:
+                throw new RuntimeException("Unrecognized unsol response: " + response);
+            //break; (implied)
+        }} catch (Throwable tr) {
+            Log.e(LOG_TAG, "Exception processing unsol response: " + response +
+                "Exception:" + tr.toString());
+            return;
+        }
+
+        //针对不同的结果，Telephony Framework作出相应的状态调整和通知
+        switch(response) {
+            case RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED:
+                /* has bonus radio state int */
+                RadioState newState = getRadioStateFromInt(p.readInt());
+
+                switchToRadioState(newState);
+            break;
+            case RIL_UNSOL_RESPONSE_CALL_STATE_CHANGED:
+                if (RILJ_LOGD) unsljLog(response);
+
+                mCallStateRegistrants
+                    .notifyRegistrants(new AsyncResult(null, null, null));
+            break;
+            case RIL_UNSOL_RESPONSE_VOICE_NETWORK_STATE_CHANGED:
+                if (RILJ_LOGD) unsljLog(response);
+
+                mVoiceNetworkStateRegistrants
+                    .notifyRegistrants(new AsyncResult(null, null, null));
+            break;
+            ......
+        }
+    }
+}}}
+
+通过上面的函数，我们可以看到几点：
+# 函数处理的都是RIL_UNSOL_RESPONSE_开头的响应，即仅处理主动上报的回复
+# 在处理完上报的结果后，更改系统状态，开始通知对该事件感兴趣的侦听者
+
+接着来看看如何将事件通知给侦听者的
+
+上面我们已经说过，RIL的父类BaseCommands提供了对各种事件进行注册侦听的方法的实现，Telephonoy Framework层提供给上层使用的注册侦听的方法最终都是调用BaseCommands的实现，BaseCommands将侦听者的信息封装到单个Registrant或添加到RegistrantList列表中以备后用。
+
+当modem上报事件由RILReceiver处理后，RILReceiver将处理的结果封装到一个AsyncResult对象中，然后调用相应的Registrant或者RegistrantList 来通知上层，如果不清楚RegistrantList 如何将结果通知上层，可以看前面我们在PhoneBase中的介绍。
+
+2, 经过请求的回复(SOLICITED RESPONSE),即modem针对客户端发送的请求而返回的响应，比如这对客户端查询网络状态，拨打电话等请求的回复。
+
+{{{class="brush: java"
+    private void
+    processSolicited (Parcel p) {
+        int serial, error;
+        boolean found = false;
+
+        serial = p.readInt();   //获取请求的序列号
+        error = p.readInt();    //获取请求的处理结果，0成功，非0失败
+
+        RILRequest rr;
+
+        //从请求列表中根据序列号找到对应的请求
+        rr = findAndRemoveRequestFromList(serial);
+
+        if (rr == null) {
+            Log.w(LOG_TAG, "Unexpected solicited response! sn: "
+                            + serial + " error: " + error);
+            return;
+        }
+
+        Object ret = null;
+
+        //跟unsolicted response一样处理，当请求处理成功，接着处理反馈的数据
+        if (error == 0 || p.dataAvail() > 0) {
+            try {switch (rr.mRequest) {
+            case RIL_REQUEST_GET_SIM_STATUS: ret =  responseIccCardStatus(p); break;
+            case RIL_REQUEST_ENTER_SIM_PIN: ret =  responseInts(p); break;
+            case RIL_REQUEST_GET_CURRENT_CALLS: ret =  responseCallList(p); break;
+            case RIL_REQUEST_DIAL: ret =  responseVoid(p); break;
+            case RIL_REQUEST_GET_IMSI: ret =  responseString(p); break;
+            case RIL_REQUEST_HANGUP_WAITING_OR_BACKGROUND: ret =  responseVoid(p); break;
+            case RIL_REQUEST_LAST_CALL_FAIL_CAUSE: ret =  responseInts(p); break;
+            case RIL_REQUEST_VOICE_REGISTRATION_STATE: ret =  responseStrings(p); break;
+            ......
+            default:
+                throw new RuntimeException("Unrecognized solicited response: " + rr.mRequest);
+            //break;
+            }} catch (Throwable tr) {
+                // Exceptions here usually mean invalid RIL responses
+                //出错时，将异常信息发送给注册者
+                if (rr.mResult != null) {
+                    AsyncResult.forMessage(rr.mResult, null, tr);
+                    rr.mResult.sendToTarget();
+                }
+                rr.release();
+                return;
+            }
+        }
+
+        if (error != 0) {
+            //当请求处理失败，由RILRequest的onError(）处理，这也会把异常信息发送给注册者
+            rr.onError(error, ret);
+            rr.release();
+            return;
+        }
+
+        //如果没有错误，发送反馈数据给注册者
+        if (rr.mResult != null) {
+            AsyncResult.forMessage(rr.mResult, ret, null);
+            rr.mResult.sendToTarget();
+        }
+
+        rr.release();
+    }
+}}}
+
+由于处理的是非主动上报的信息，所以处理时需要根据rild反馈信息中的请求序列号，从请求列表中找到对应的RILRequest,RILRequest中包含一个Message对象，Message对象中指定了这个Message的target Handler,所以processSolicited(）只要将请求的反馈信息封装到这个Message对象的obj中，然后调用sendToTarget(）即可。
+
+RILJ的分析已经结束了，趁热打铁，我们接着分析RILC的实现方式，请转到[[android_rilc|Android RILC实现]]

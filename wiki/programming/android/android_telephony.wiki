@@ -1,4 +1,5 @@
 %toc
+
 %template code_3
 
     = Android Telephony接口分析 =
@@ -20,7 +21,7 @@ google将telephony framework的实现放在了两个java包中：
 [[http://www.oschina.net/code/explore/android-4.0.1/telephony/java/com/android/internal/telephony/Phone.java|android源码]]
 
 {{{class="brush: java"
-public interface Phhone{
+public interface Phone{
     ......
     //定义手机状态
     enum State{
@@ -75,6 +76,145 @@ public abstract class PhoneBase extends Handler implements Phone {
 }
 }}}
 从上面的代码看出，PhoneBase使用了监听者模式，将事件的接收者通过registerXXX()函数保存在相应的RegistrantList中，这样，当对应的事件触发后，就可以通知到所有对该事件感兴趣的接受者啦。
+
+这里我们有必要对注册方法详细分析一下，因为这关系到对后面通知如何发送回注册者的事件处理函数。
+所有的注册事件通知的函数，要么被保存为Registrant,要么添加到特定事件的RegistrantList列表中。我们看看添加到列表中的到底是什么东西？
+
+`RegistrantList.java`
+
+{{{class="brush: java"
+    public synchronized void
+    add(Handler h, int what, Object obj)
+    {
+        add(new Registrant(h, what, obj));
+    }
+
+    public synchronized void
+    addUnique(Handler h, int what, Object obj)
+    {
+        // if the handler is already in the registrant list, remove it
+        remove(h);
+        add(new Registrant(h, what, obj));        
+    }
+    
+    public synchronized void
+    add(Registrant r)
+    {
+        removeCleared();
+        registrants.add(r);
+    }
+}}}
+RegistrantList 添加时，会将所有的参数封装为一个Registrant 对象.然后将该对象添加到Registrant列表中
+
+`Registrant.java`
+
+{{{class="brush: java"
+public class Registrant
+{
+    public
+    Registrant(Handler h, int what, Object obj)
+    {
+        refH = new WeakReference(h);
+        this.what = what;
+        userObj = obj;
+    }
+
+    WeakReference   refH;
+    int             what;
+    Object          userObj;
+}
+}}}
+Registrant将传入的参数保存下来，我们来具体解释一下这三个参数的作用。
+# Handler h: 当感兴趣的事件触发后，将由哪一个Handler处理。
+# int what: 调用对象自己可以随意定义，在 handler 中对上报的事件进行区分。
+# Object userObj: 后续补足 
+
+当事件触发后，底层又如何通知上层注册者，并将信息处理权交给注册者呢？
+
+底层何时上报消息并如何通知上层我们会在[[android_rilj||RILJ实现]]详细讲解,不过为了文章的连续性，这里把信息处理权如何交到注册者的答案一并给出：
+
+答案自然还是在Registrant中。RegistrantList 最终也是由组成的Registrant自己处理的。
+
+Registrant最终会调用internalNotifyRegistrant(）函数将消息处理权交给注册者。
+{{{class="brush: java"
+    /*package*/ void
+    internalNotifyRegistrant (Object result, Throwable exception)
+    {
+        //获取保存的处理消息的handler
+        Handler h = getHandler();
+
+        if (h == null) {
+            clear();
+        } else {
+            Message msg = Message.obtain();
+
+            msg.what = what;
+            
+            msg.obj = new AsyncResult(userObj, result, exception);
+            
+            h.sendMessage(msg);
+        }
+    }
+    public Handler
+    getHandler()
+    {
+        if (refH == null)
+            return null;
+
+        return (Handler) refH.get();
+    }
+}}}
+
+最终我们可以看到，事件的信息会被封装为一个Message,Message的what使用的是调用者自己定义的what,Message的obj中保存的是具体事件的信息（这里封装为一个AsyncResult对象），这个消息最后由调用者传入的handler发送出去，根据Handler的原理，自然也就由该handler的handleMessage(）函数处理了。
+
+这里又牵扯到一个AsyncResult类，这个类是一个辅助类，用于封装上报的信息，使用时将这个对象设置为某个Message的obj属性。这样封装的信息就可以同Message一同发送了。
+
+AsyncResult.java
+{{{class="brush: java"
+public class AsyncResult
+{
+
+    // Expect either exception or result to be null
+    public Object userObj;  //保存Message的obj信息，不知有啥用
+    public Throwable exception; //当modem处理出现异常时，保存异常信息
+    public Object result;   //保存modem上报的结果
+
+    //下面两个方法都是辅助方法，用于设置已有的Message对象的obj属性为AsyncResult对象
+    public static AsyncResult 
+    forMessage(Message m, Object r, Throwable ex)
+    {
+        AsyncResult ret;
+
+        ret = new AsyncResult (m.obj, r, ex);
+
+        m.obj = ret; 
+
+        return ret;
+    }
+
+    /** Saves and sets m.obj */
+    public static AsyncResult 
+    forMessage(Message m)
+    {
+        AsyncResult ret;
+
+        ret = new AsyncResult (m.obj, null, null);
+
+        m.obj = ret; 
+
+        return ret;
+    }
+
+    //当new 一个AsyncResult对象时使用构造方法。
+    public 
+    AsyncResult (Object uo, Object r, Throwable ex)
+    {
+        userObj = uo;
+        result = r;
+        exception = ex;
+    }
+}
+}}}
 
 `PhoneBase实现Phone接口很容易理解，可以是为什么要继承自Handler类呢？`
 答案就在PhoneBase的构造函数里：
@@ -142,6 +282,7 @@ public abstract class PhoneBase extends Handler implements Phone {
         mIncomingRingRegistrants.notifyRegistrants(ar);
     }
 }}}
+后面我们会接触到，Telephony Framework提供了很多的类都继承自Handler,如这里的PhoneBase,还有CallManager等等，这些类的作用在于将RILD上报的信息归类和预处理，比如CallManager只处理通话的事件，然后由这些类来通知上层的注册者。
 
 在这里，我们接触到了telephony framework中最重要的对象`mCM`，这是一个CommondsInterface接口对象，对他的分析会在下面说明，现在只需要知道PhonbBase通过该对象发送命令给BP并接收BP发送回来的信息。
 

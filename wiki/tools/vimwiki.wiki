@@ -150,6 +150,16 @@
 [[http://code.google.com/p/vim-script-cn/source/browse/tags/doc/vimwiki_v1..1.1?spec=svn162&r=162|vim-script-cn]]
 ----
 === 4. Vimwiki使用技巧： ===
+==== 同一文件跳转 ====
+`使用mark自定义标记：`
+    ma ：用a标记当前光标的位置，可以使用a-z 26个标记
+    `a ：跳转到a标志处
+    使用的特殊跳转标记：
+    '  : 跳转前的位置
+    "  : 最后编辑的位置
+    [  : 最后修改的位置的开头
+    ]  : 最后修改的位置的结尾
+  
 ----
 === 5. 参考文件 ===
 * http://www.cnblogs.com/heyuquan/archive/2012/09/28/2707632.html

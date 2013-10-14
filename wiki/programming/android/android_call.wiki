@@ -1,0 +1,68 @@
+%template code_3
+
+= Android Call相关类分析 =
+
+= Call 类 =
+Android使用Call代表一个通话。
+每个通话有9种状态：IDLE,ACTIVE,HOLDING,DIALING,ALERTING,INCOMING,WAITING,DISCONNECTED,DISCONNECTING。
+有Call.java内部枚举类定义：
+{{{class="brush: java"
+    public enum State {
+        IDLE, ACTIVE, HOLDING, DIALING, ALERTING, INCOMING, WAITING, DISCONNECTED, DISCONNECTING;
+
+        public boolean isAlive() {
+            return !(this == IDLE || this == DISCONNECTED || this == DISCONNECTING);
+        }
+
+        public boolean isRinging() {
+            return this == INCOMING || this == WAITING;
+        }
+
+        public boolean isDialing() {
+            return this == DIALING || this == ALERTING;
+        }
+    }
+}}}
+
+Call.java中提供的获取Call状态的方法：
+{{{class="brush: java"
+    public State getState() {
+        return state;
+    }
+
+    public boolean isIdle() {
+        return !getState().isAlive();
+    }
+    
+    public boolean
+    isDialingOrAlerting() {
+        return getState().isDialing();
+    }
+
+    public boolean
+    isRinging() {
+        return getState().isRinging();
+    }
+}}}
+每个通话至少有一路连接，Android使用Connection来表示连接，马上我们会讲到。当一个Call中包含了多个连接时，表示处于多方通话状态。
+
+Call.java中提供了多个方法获取其中的连接：
+{{{class="brush: java"
+//判断是否包含连接C
+public boolean hasConnection(Connection c){......}
+//判断Call是否包含连接
+
+身体【M＃【）
+public boolean hasConnections(）{......}
+//获取最早建立的连接
+public Connection getEarliestConnection(）{......}
+//获取最早创建的连接的时间
+public long getEarliestCreateTime(){......}
+//获取最早建立连接的时间
+public long getEarliestConnectTime(){......}
+}}}
+
+GSMCall是Call在GSM网络模式下的具体实现。
+
+== Connection ==
+Connection是Android通话类体系结构中最基础的单元，是Call的构成单元。

@@ -2,7 +2,9 @@
 
 = Android CallTracker篇 =
 
-CallHandler是Telephony Framework中用于管理通话状态的策略类。
+我们知道，Android仅使用AT指令+CLCC获取当前的通话列表，功能十分的简单和有限，因此Framework层为了管理modem通话状态，必须自己建立一套机制控制和维护通话状态，这也是CallTracker存在的初衷。
+
+CallTracker 是Telephony Framework中用于管理通话状态的策略类。
 从他的定义来看，他是一个抽象类，继承自Handler,肯定会通过CommandInterface注册部分事件侦听。
 
 下面来看看他的实现：
@@ -26,7 +28,7 @@ public abstract class CallTracker extends Handler {
    
     ......
     //CallTracker定义的几个抽象方法
-    //由子类实现 
+    //由子类实现，处理＋CLCC查询结果
     protected abstract void handlePollCalls(AsyncResult ar);
     //定义Handler的抽象方法
     public abstract void handleMessage (Message msg);
@@ -59,7 +61,7 @@ RIL.java
 }}}
 最终的处理交给responseCallList(）来处理，不清楚RIL实现方式的可以去翻[[android_rilj|Android RILJ实现]]
 接着看看responseCallList(）的实现：
-{{{class="brush: java
+{{{class="brush: java"
     private Object
     responseCallList(Parcel p) {
         int num;
@@ -114,6 +116,8 @@ RIL.java
             }
         }
 
+        
+        //CallTracker依赖DriverCall 的index顺序来管理Connection,必须对队列排序
         Collections.sort(response);
 
         return response;
@@ -121,7 +125,7 @@ RIL.java
     
 }}}
 函数很简单，将每条通话信息封装到DriverCall对象中，然后将这个DriverCall列表返回，我们看看DriverCall中包含着哪些信息：
-{{{class="brush: java
+{{{class="brush: java"
 public class DriverCall implements Comparable {
     //当前通话的6种状态
     public enum State {
@@ -163,9 +167,391 @@ public class DriverCall implements Comparable {
                 throw new ATParseEx("illegal call state " + state);
         }
     }
+    
+    //排序方法
+    public int
+    compareTo (Object o) {
+        DriverCall dc;
+
+        dc = (DriverCall)o;
+
+        if (index < dc.index) {
+            return -1;
+        } else if (index == dc.index) {
+            return 0;
+        } else { /*index > dc.index*/
+            return 1;
+        }
+    }
 }
 }}}
 
-父类看完了，我们看看具体网络模式下的实现：GsmCallTracker.java
+父类看完了，我们看看GSM网络模式下的实现：GsmCallTracker.java
 
 GsmCallTracker.java
+该类负责管理GSM网络模式下的通话状态。
+{{{class="brush: java"
+public final class GsmCallTracker extends CallTracker {
+    
+    static final int MAX_CONNECTIONS = 7;   // only 7 connections allowed in GSM
+    static final int MAX_CONNECTIONS_PER_CALL = 5; // only 5 connections allowed per call
+
+    //***** Instance Variables
+    GsmConnection connections[] = new GsmConnection[MAX_CONNECTIONS];
+    RegistrantList voiceCallEndedRegistrants = new RegistrantList();
+    RegistrantList voiceCallStartedRegistrants = new RegistrantList();
+
+    // connections dropped during last poll
+    ArrayList<GsmConnection> droppedDuringPoll
+        = new ArrayList<GsmConnection>(MAX_CONNECTIONS);
+
+    GsmCall ringingCall = new GsmCall(this);
+    GsmCall foregroundCall = new GsmCall(this);
+    GsmCall backgroundCall = new GsmCall(this);
+
+    GsmConnection pendingMO;
+    boolean hangupPendingMO;
+
+    GSMPhone phone;
+
+    Phone.State state = Phone.State.IDLE;
+
+    ......
+
+    GsmCallTracker (GSMPhone phone) {
+        this.phone = phone; //将CallTracker与Phone相关联
+        //使用关联Phone的CommandInterface实现（RIL）作为自身的cm
+        cm = phone.mCM;
+
+        //监听CallStateChanged,RadioOn/Off状态。
+        cm.registerForCallStateChanged(this, EVENT_CALL_STATE_CHANGE, null);
+        cm.registerForOn(this, EVENT_RADIO_AVAILABLE, null);
+        cm.registerForNotAvailable(this, EVENT_RADIO_NOT_AVAILABLE, null);
+    }
+}}}
+
+从构造函数可以看出他的实现原理：每个GSMCallTracker通过与一个GSMPhone实例相关联，使用该GSMPhone的CommandInterface实例管理该GSMPhone的所有通话。并且通过这个cm注册了Radio状态改变和通话状态改变监听，通过监听这三个事件，完成对通话的管理。
+
+GSMCallTracker内部维护了三个通话（GsmCall）对象：
+# ringingCall:处于ringing状态或call waiting状态的通话
+# foregroundCall:处于active状态的通话
+# backgroundCall:处于held状态的通话
+
+和一个最大MAX_CONNECTIONS=7的GsmConnection队列
+
+
+这里使用到了GsmCall类和GsmConnection类，这两个类我们在[[android_call|Android Call相关类分析]]中进行分析。
+
+GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听者添加到内部定义的RegistrantList对象中。
+{{{class="brush: java"
+    public void registerForVoiceCallStarted(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+        voiceCallStartedRegistrants.add(r);
+    }
+
+    public void unregisterForVoiceCallStarted(Handler h) {
+        voiceCallStartedRegistrants.remove(h);
+    }
+
+    public void registerForVoiceCallEnded(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+        voiceCallEndedRegistrants.add(r);
+    }
+
+    public void unregisterForVoiceCallEnded(Handler h) {
+        voiceCallEndedRegistrants.remove(h);
+    }
+}}}
+
+我们前面提到，GsmCallTracker通过监听CallStateChanged和Radio事件来实现对当前通话的维护管理。我们下面来看具体的实现。
+{{{class="brush: java"
+    //注册的事件最终由GsmCallTracker的handleMessage()函数处理
+    public void
+    handleMessage (Message msg) {
+        AsyncResult ar;
+
+        switch (msg.what) {
+            case EVENT_POLL_CALLS_RESULT:
+                ar = (AsyncResult)msg.obj;
+
+                if (msg == lastRelevantPoll) {
+                    if (DBG_POLL) log(
+                            "handle EVENT_POLL_CALL_RESULT: set needsPoll=F");
+                    needsPoll = false;
+                    lastRelevantPoll = null;
+                    handlePollCalls((AsyncResult)msg.obj);
+                }
+            break;
+
+            ......
+            //响应CallState changed事件
+            case EVENT_REPOLL_AFTER_DELAY:
+            case EVENT_CALL_STATE_CHANGE:
+                pollCallsWhenSafe();
+            break;
+
+            //响应Radio ON事件
+            case EVENT_RADIO_AVAILABLE:
+                handleRadioAvailable();
+            break;
+
+            //响应Radio not available事件
+            case EVENT_RADIO_NOT_AVAILABLE:
+                handleRadioNotAvailable();
+            break;
+        }
+    }
+}}}
+最终的实现都统一到pollCallsWhenSafe(）函数中，该函数由父类CallTracker.java实现：
+{{{class="brush: java"
+    protected void pollCallsWhenSafe() {
+        needsPoll = true;
+
+        if (checkNoOperationsPending()) {
+            //设置处理后返回的Message
+            lastRelevantPoll = obtainMessage(EVENT_POLL_CALLS_RESULT);
+            cm.getCurrentCalls(lastRelevantPoll);
+        }
+    }
+}}}
+使用RIL发送获取当前通话列表指令，RILD处理后使用EVENT_POLL_CALLS_RESULT Message将结果返回到GsmCallTracker.我们在前面已经分析过，返回的结果是一个DriverCall List.
+{{{class="brush: java"
+    public void
+    handleMessage (Message msg) {
+        AsyncResult ar;
+
+        switch (msg.what) {
+            //处理
+            case EVENT_POLL_CALLS_RESULT:
+                ar = (AsyncResult)msg.obj;
+
+                if (msg == lastRelevantPoll) {
+                    needsPoll = false;
+                    lastRelevantPoll = null;
+                    //处理返回结果
+                    handlePollCalls((AsyncResult)msg.obj);
+                }
+            break;
+        }
+        ......
+    }
+}}}
+到这里，就到了GsmCallTracker的关键地方了，GsmCallTracker通过handlePollCalls(）使Telephony Framework维护的通话状态与modem状态保持一致。
+{{{class="brush: java"
+    protected void
+    handlePollCalls(AsyncResult ar) {
+        List polledCalls;
+
+        if (ar.exception == null) {
+            polledCalls = (List)ar.result;
+        } else if (isCommandExceptionRadioNotAvailable(ar.exception)) {
+            // just a dummy empty ArrayList to cause the loop
+            // to hang up all the calls
+            polledCalls = new ArrayList();
+        } else {
+            //当Radio不可用时，设定一定时间后重新查询
+            pollCallsAfterDelay();
+            return;
+        }
+
+        Connection newRinging = null; //or waiting
+        boolean hasNonHangupStateChanged = false;   // Any change besides
+                                                    // a dropped connection
+        boolean needsPollDelay = false;
+        boolean unknownConnectionAppeared = false;
+
+        //connection为GsmCallTracker定义，用于保存当前所有的连接
+        for (int i = 0, curDC = 0, dcSize = polledCalls.size()
+                ; i < connections.length; i++) {
+            GsmConnection conn = connections[i];
+            DriverCall dc = null;
+
+            // polledCall list is sparse
+            if (curDC < dcSize) {
+                dc = (DriverCall) polledCalls.get(curDC);
+
+                if (dc.index == i+1) {
+                    curDC++;
+                } else {
+                    dc = null;
+                }
+            }
+
+            if (conn == null && dc != null) {
+                // Connection appeared in CLCC response that we don't know about
+                if (pendingMO != null && pendingMO.compareTo(dc)) {
+
+                    if (DBG_POLL) log("poll: pendingMO=" + pendingMO);
+
+                    // It's our pending mobile originating call
+                    connections[i] = pendingMO;
+                    pendingMO.index = i;
+                    pendingMO.update(dc);
+                    pendingMO = null;
+
+                    // Someone has already asked to hangup this call
+                    if (hangupPendingMO) {
+                        hangupPendingMO = false;
+                        try {
+                            if (Phone.DEBUG_PHONE) log(
+                                    "poll: hangupPendingMO, hangup conn " + i);
+                            hangup(connections[i]);
+                        } catch (CallStateException ex) {
+                            Log.e(LOG_TAG, "unexpected error on hangup");
+                        }
+
+                        // Do not continue processing this poll
+                        // Wait for hangup and repoll
+                        return;
+                    }
+                } else {
+                    connections[i] = new GsmConnection(phone.getContext(), dc, this, i);
+
+                    // it's a ringing call
+                    if (connections[i].getCall() == ringingCall) {
+                        newRinging = connections[i];
+                    } else {
+                        // Something strange happened: a call appeared
+                        // which is neither a ringing call or one we created.
+                        // Either we've crashed and re-attached to an existing
+                        // call, or something else (eg, SIM) initiated the call.
+
+                        Log.i(LOG_TAG,"Phantom call appeared " + dc);
+
+                        // If it's a connected call, set the connect time so that
+                        // it's non-zero.  It may not be accurate, but at least
+                        // it won't appear as a Missed Call.
+                        if (dc.state != DriverCall.State.ALERTING
+                                && dc.state != DriverCall.State.DIALING) {
+                            connections[i].connectTime = System.currentTimeMillis();
+                        }
+
+                        unknownConnectionAppeared = true;
+                    }
+                }
+                hasNonHangupStateChanged = true;
+            } else if (conn != null && dc == null) {
+                // Connection missing in CLCC response that we were
+                // tracking.
+                droppedDuringPoll.add(conn);
+                // Dropped connections are removed from the CallTracker
+                // list but kept in the GsmCall list
+                connections[i] = null;
+            } else if (conn != null && dc != null && !conn.compareTo(dc)) {
+                // Connection in CLCC response does not match what
+                // we were tracking. Assume dropped call and new call
+
+                droppedDuringPoll.add(conn);
+                connections[i] = new GsmConnection (phone.getContext(), dc, this, i);
+
+                if (connections[i].getCall() == ringingCall) {
+                    newRinging = connections[i];
+                } // else something strange happened
+                hasNonHangupStateChanged = true;
+            } else if (conn != null && dc != null) { /* implicit conn.compareTo(dc) */
+                boolean changed;
+                changed = conn.update(dc);
+                hasNonHangupStateChanged = hasNonHangupStateChanged || changed;
+            }
+
+            if (REPEAT_POLLING) {
+                if (dc != null) {
+                    // FIXME with RIL, we should not need this anymore
+                    if ((dc.state == DriverCall.State.DIALING
+                            /*&& cm.getOption(cm.OPTION_POLL_DIALING)*/)
+                        || (dc.state == DriverCall.State.ALERTING
+                            /*&& cm.getOption(cm.OPTION_POLL_ALERTING)*/)
+                        || (dc.state == DriverCall.State.INCOMING
+                            /*&& cm.getOption(cm.OPTION_POLL_INCOMING)*/)
+                        || (dc.state == DriverCall.State.WAITING
+                            /*&& cm.getOption(cm.OPTION_POLL_WAITING)*/)
+                    ) {
+                        // Sometimes there's no unsolicited notification
+                        // for state transitions
+                        needsPollDelay = true;
+                    }
+                }
+            }
+        }
+
+        // This is the first poll after an ATD.
+        // We expect the pending call to appear in the list
+        // If it does not, we land here
+        if (pendingMO != null) {
+            Log.d(LOG_TAG,"Pending MO dropped before poll fg state:"
+                            + foregroundCall.getState());
+
+            droppedDuringPoll.add(pendingMO);
+            pendingMO = null;
+            hangupPendingMO = false;
+        }
+
+        if (newRinging != null) {
+            phone.notifyNewRingingConnection(newRinging);
+        }
+
+        // clear the "local hangup" and "missed/rejected call"
+        // cases from the "dropped during poll" list
+        // These cases need no "last call fail" reason
+        for (int i = droppedDuringPoll.size() - 1; i >= 0 ; i--) {
+            GsmConnection conn = droppedDuringPoll.get(i);
+
+            if (conn.isIncoming() && conn.getConnectTime() == 0) {
+                // Missed or rejected call
+                Connection.DisconnectCause cause;
+                if (conn.cause == Connection.DisconnectCause.LOCAL) {
+                    cause = Connection.DisconnectCause.INCOMING_REJECTED;
+                } else {
+                    cause = Connection.DisconnectCause.INCOMING_MISSED;
+                }
+
+                if (Phone.DEBUG_PHONE) {
+                    log("missed/rejected call, conn.cause=" + conn.cause);
+                    log("setting cause to " + cause);
+                }
+                droppedDuringPoll.remove(i);
+                conn.onDisconnect(cause);
+            } else if (conn.cause == Connection.DisconnectCause.LOCAL) {
+                // Local hangup
+                droppedDuringPoll.remove(i);
+                conn.onDisconnect(Connection.DisconnectCause.LOCAL);
+            } else if (conn.cause ==
+                Connection.DisconnectCause.INVALID_NUMBER) {
+                droppedDuringPoll.remove(i);
+                conn.onDisconnect(Connection.DisconnectCause.INVALID_NUMBER);
+            }
+        }
+
+        // Any non-local disconnects: determine cause
+        if (droppedDuringPoll.size() > 0) {
+            cm.getLastCallFailCause(
+                obtainNoPollCompleteMessage(EVENT_GET_LAST_CALL_FAIL_CAUSE));
+        }
+
+        if (needsPollDelay) {
+            pollCallsAfterDelay();
+        }
+
+        // Cases when we can no longer keep disconnected Connection's
+        // with their previous calls
+        // 1) the phone has started to ring
+        // 2) A Call/Connection object has changed state...
+        //    we may have switched or held or answered (but not hung up)
+        if (newRinging != null || hasNonHangupStateChanged) {
+            internalClearDisconnected();
+        }
+
+        updatePhoneState();
+
+        if (unknownConnectionAppeared) {
+            phone.notifyUnknownConnection();
+        }
+
+        if (hasNonHangupStateChanged || newRinging != null) {
+            phone.notifyPreciseCallStateChanged();
+        }
+
+        //dumpState();
+    }
+}}}
+

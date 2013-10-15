@@ -234,8 +234,9 @@ public final class GsmCallTracker extends CallTracker {
 
 GSMCallTracker内部维护了三个通话（GsmCall）对象：
 # ringingCall:处于ringing状态或call waiting状态的通话
-# foregroundCall:处于active状态的通话
+# foregroundCall:处于active,dialing,alerting状态的通话
 # backgroundCall:处于held状态的通话
+这GsmCallTracker内部维护的所有connection,都会根据他们的状态划分到这三个GsmCall对象中。
 
 和一个最大MAX_CONNECTIONS=7的GsmConnection队列
 
@@ -360,13 +361,15 @@ GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听�
         boolean needsPollDelay = false;
         boolean unknownConnectionAppeared = false;
 
-        //connection为GsmCallTracker定义，用于保存当前所有的连接
+        //connection为GsmCallTracker定义，用于维护当前所有的通话连接
         for (int i = 0, curDC = 0, dcSize = polledCalls.size()
                 ; i < connections.length; i++) {
+            //遍历当前的connection列表
             GsmConnection conn = connections[i];
             DriverCall dc = null;
 
-            // polledCall list is sparse
+            //由于返回的DriverCall列表是以index大小排序的有序队列，这里根据索引，查看DriverCall列表中是否存在对应index的成员,如果有，则返回对应的DriverCall,没有则返回null
+
             if (curDC < dcSize) {
                 dc = (DriverCall) polledCalls.get(curDC);
 
@@ -378,23 +381,18 @@ GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听�
             }
 
             if (conn == null && dc != null) {
-                // Connection appeared in CLCC response that we don't know about
+                //表示当前维护的connection列表中还没有添加该通话
                 if (pendingMO != null && pendingMO.compareTo(dc)) {
-
-                    if (DBG_POLL) log("poll: pendingMO=" + pendingMO);
-
-                    // It's our pending mobile originating call
+                   //该通话是我们呼出的通话 
                     connections[i] = pendingMO;
                     pendingMO.index = i;
                     pendingMO.update(dc);
                     pendingMO = null;
 
-                    // Someone has already asked to hangup this call
+                    //当我们已经要求挂断该通话时，不再对该通话进一步处理
                     if (hangupPendingMO) {
                         hangupPendingMO = false;
                         try {
-                            if (Phone.DEBUG_PHONE) log(
-                                    "poll: hangupPendingMO, hangup conn " + i);
                             hangup(connections[i]);
                         } catch (CallStateException ex) {
                             Log.e(LOG_TAG, "unexpected error on hangup");
@@ -405,9 +403,11 @@ GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听�
                         return;
                     }
                 } else {
+                    //创建一个新的GsmConnection对象，并添加到维护的connection列表中
+                    //注意构造GsmConnection时会按照dc的状态将构造的connection对象添加到对应类型的Call中，在当前情境下，该connection属于ringingCall对象。
                     connections[i] = new GsmConnection(phone.getContext(), dc, this, i);
 
-                    // it's a ringing call
+                    //如果当前的connection
                     if (connections[i].getCall() == ringingCall) {
                         newRinging = connections[i];
                     } else {
@@ -431,16 +431,13 @@ GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听�
                 }
                 hasNonHangupStateChanged = true;
             } else if (conn != null && dc == null) {
-                // Connection missing in CLCC response that we were
-                // tracking.
+                //conn存在而dc不存在，说明该connection已经挂断，将该conn添加到droppedDuringPoll列表中
                 droppedDuringPoll.add(conn);
                 // Dropped connections are removed from the CallTracker
                 // list but kept in the GsmCall list
                 connections[i] = null;
             } else if (conn != null && dc != null && !conn.compareTo(dc)) {
-                // Connection in CLCC response does not match what
-                // we were tracking. Assume dropped call and new call
-
+                //conn和dc都存在，但两个并不相同，表示conn已经挂断，而dc为新的通话
                 droppedDuringPoll.add(conn);
                 connections[i] = new GsmConnection (phone.getContext(), dc, this, i);
 
@@ -449,29 +446,12 @@ GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听�
                 } // else something strange happened
                 hasNonHangupStateChanged = true;
             } else if (conn != null && dc != null) { /* implicit conn.compareTo(dc) */
+                //当conn和dc相同，使用dc更新conn
                 boolean changed;
                 changed = conn.update(dc);
                 hasNonHangupStateChanged = hasNonHangupStateChanged || changed;
             }
 
-            if (REPEAT_POLLING) {
-                if (dc != null) {
-                    // FIXME with RIL, we should not need this anymore
-                    if ((dc.state == DriverCall.State.DIALING
-                            /*&& cm.getOption(cm.OPTION_POLL_DIALING)*/)
-                        || (dc.state == DriverCall.State.ALERTING
-                            /*&& cm.getOption(cm.OPTION_POLL_ALERTING)*/)
-                        || (dc.state == DriverCall.State.INCOMING
-                            /*&& cm.getOption(cm.OPTION_POLL_INCOMING)*/)
-                        || (dc.state == DriverCall.State.WAITING
-                            /*&& cm.getOption(cm.OPTION_POLL_WAITING)*/)
-                    ) {
-                        // Sometimes there's no unsolicited notification
-                        // for state transitions
-                        needsPollDelay = true;
-                    }
-                }
-            }
         }
 
         // This is the first poll after an ATD.
@@ -486,16 +466,16 @@ GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听�
             hangupPendingMO = false;
         }
 
+        //当有新来电时，通知新来电
         if (newRinging != null) {
             phone.notifyNewRingingConnection(newRinging);
         }
 
-        // clear the "local hangup" and "missed/rejected call"
-        // cases from the "dropped during poll" list
-        // These cases need no "last call fail" reason
+        //处理droppedDuringPoll列表中本地挂断的通话，直接设置Connection的断开原因
         for (int i = droppedDuringPoll.size() - 1; i >= 0 ; i--) {
             GsmConnection conn = droppedDuringPoll.get(i);
 
+            //来电未接听时，设为来电拒接或未接
             if (conn.isIncoming() && conn.getConnectTime() == 0) {
                 // Missed or rejected call
                 Connection.DisconnectCause cause;
@@ -505,10 +485,6 @@ GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听�
                     cause = Connection.DisconnectCause.INCOMING_MISSED;
                 }
 
-                if (Phone.DEBUG_PHONE) {
-                    log("missed/rejected call, conn.cause=" + conn.cause);
-                    log("setting cause to " + cause);
-                }
                 droppedDuringPoll.remove(i);
                 conn.onDisconnect(cause);
             } else if (conn.cause == Connection.DisconnectCause.LOCAL) {
@@ -522,7 +498,7 @@ GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听�
             }
         }
 
-        // Any non-local disconnects: determine cause
+        //如果存在非本地挂断的通话，获取挂断原因
         if (droppedDuringPoll.size() > 0) {
             cm.getLastCallFailCause(
                 obtainNoPollCompleteMessage(EVENT_GET_LAST_CALL_FAIL_CAUSE));
@@ -543,15 +519,53 @@ GSMCallTracker实现了CallTracker定义的监听通话状态函数，将监听�
 
         updatePhoneState();
 
+        //如果存在未知的连接，触发未知连接通知事件
         if (unknownConnectionAppeared) {
             phone.notifyUnknownConnection();
         }
 
+        //当不是Hangup状态改变或来电时，触发PreciseCallStateChanged事件
         if (hasNonHangupStateChanged || newRinging != null) {
             phone.notifyPreciseCallStateChanged();
         }
+    }
+    
+    //根据Call的状态更新Phone状态
+    private void
+    updatePhoneState() {
+        Phone.State oldState = state;
 
-        //dumpState();
+        if (ringingCall.isRinging()) {
+            state = Phone.State.RINGING;
+        } else if (pendingMO != null ||
+                !(foregroundCall.isIdle() && backgroundCall.isIdle())) {
+            state = Phone.State.OFFHOOK;
+        } else {
+            state = Phone.State.IDLE;
+        }
+
+        if (state == Phone.State.IDLE && oldState != state) {
+            //当Phone的状态由非IDLE变为IDLE,说明通话挂断，进入待机，触发voiceCallEnded
+            voiceCallEndedRegistrants.notifyRegistrants(
+                new AsyncResult(null, null, null));
+        } else if (oldState == Phone.State.IDLE && oldState != state) {
+            //当Phone的状态由IDLE变为非IDLE,说明开始通话，触发voiceCallStarted
+            voiceCallStartedRegistrants.notifyRegistrants (
+                    new AsyncResult(null, null, null));
+        }
+
+        //当Phone的状态发生改变时，出发PhoneStateChanged事件
+        if (state != oldState) {
+            phone.notifyPhoneStateChanged();
+        }
     }
 }}}
+函数最后调用了phone.notifyPhoneStateChanged()来通知监听者，phone在这里就是GSMPhone实例，我们看看他是怎么实现的。
+GSMPhone.java
+{{{class="brush: java"
+    /*package*/ void notifyPhoneStateChanged() {
+        mNotifier.notifyPhoneState(this);
+    }
+}}}
+GSMPhone使用mNotifier来通知PhoneState改变事件，而mNotifier就是GSMPhone在构造时传入的DefaultPhoneNotifier对象，这也就引出了[[android_phoneNotifier|Telephony PhoneNotifier类分析]]
 

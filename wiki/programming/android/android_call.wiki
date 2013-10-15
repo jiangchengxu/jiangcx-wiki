@@ -65,4 +65,198 @@ public long getEarliestConnectTime(){......}
 GSMCall是Call在GSM网络模式下的具体实现。
 
 == Connection ==
-Connection是Android通话类体系结构中最基础的单元，是Call的构成单元。
+Connection是Android通话类体系结构中最基础的单元，表示实际的每一路通话连接，是Call的构成单元。每个Call有多个Connection组成，CallTracker负责维护一个当前通话的connection列表。
+
+与Call一样，Connection是一个抽象类，每种网络模式下都由具体的子类来实现。Connection定义了一路连接具备的基本功能和连接断开的原因：
+{{{class="brush: java"
+public abstract class Connection {
+    ......
+
+    public enum DisconnectCause {
+        NOT_DISCONNECTED,               /* has not yet disconnected */
+        INCOMING_MISSED,                /* an incoming call that was missed and never answered */
+        NORMAL,                         /* normal; remote */
+        LOCAL,                          /* normal; local hangup */
+        BUSY,                           /* outgoing call to busy line */
+        CONGESTION,                     /* outgoing call to congested network */
+        MMI,                            /* not presently used; dial() returns null */
+        INVALID_NUMBER,                 /* invalid dial string */
+        NUMBER_UNREACHABLE,             /* cannot reach the peer */
+        SERVER_UNREACHABLE,             /* cannot reach the server */
+        INVALID_CREDENTIALS,            /* invalid credentials */
+        OUT_OF_NETWORK,                 /* calling from out of network is not allowed */
+     }
+    
+    ......
+    //返回拥有该connection对象的Call对象
+    public abstract Call getCall();
+
+    //获取该connection对象创建的时间，对于来电，响铃的时候创建，去电则振铃的时候创建
+    public abstract long getCreateTime();
+
+    //获取connection对象建立连接的时间，对于来电，始于INCOMING|WAITING状态转为ACTIVE状态时，
+    对于去电，始于DIALING|ALERTING状态转为ACTIVE状态时。
+    public abstract long getConnectTime();
+
+    //获取连接断开的时间，当connection状态转为ENDED或FAIL时
+    public abstract long getDisconnectTime();
+
+    //获取连接持续时间
+    public abstract long getDurationMillis();
+
+    //当连接处于Holding状态时，返回保持时间
+    public abstract long getHoldDurationMillis();
+
+    //获取连接断开的原因
+    public abstract DisconnectCause getDisconnectCause();
+
+    //判断连接是否为来电
+    public abstract boolean isIncoming();
+
+    //当connection建立时，会关联一个Call,使用该函数获取Call的状态
+    public Call.State getState() {
+        Call c;
+
+        c = getCall();
+
+        if (c == null) {
+            return Call.State.IDLE;
+        } else {
+            return c.getState();
+        }
+    }
+
+    //判断connection是否还处于激活状态
+    public boolean
+    isAlive() {
+        return getState().isAlive();
+    }
+
+    //判断connection是否处于响铃状态
+    public boolean
+    isRinging() {
+        return getState().isRinging();
+    }
+
+    //设置用户数据
+    public Object getUserData() {
+        return userData;
+    }
+    ......
+}
+}}}
+
+GsmConnection是Connection在GSM网络模式下的实现，代表GSM模式下的一路连接。GsmConnection提供了多个构造函数的重载，用于在不同情况下创建GsmConnection对象。
+GsmConnection.java
+{{{class="brush: java"
+public class GsmConnection extends Connection {
+    ......
+    //通过DriverCall创建GsmConnection对象。一般用于来电时，此时使用＋CLCC轮询第一次发现该连接
+    GsmConnection (Context context, DriverCall dc, GsmCallTracker ct, int index) {
+        createWakeLock(context);
+        acquireWakeLock();
+
+        owner = ct; //关联管理该connection的GsmCallTracker对象
+        h = new MyHandler(owner.getLooper());//由MyHandler处理connection自身的事件：如DTMF处理，休眠锁处理
+
+        address = dc.number;    //保存来电号码
+
+        isIncoming = dc.isMT;   //设置是否来电
+        createTime = System.currentTimeMillis();    //设置连接创建的时间
+        numberPresentation = dc.numberPresentation; //设置是否显示号码
+        uusInfo = dc.uusInfo;
+
+        this.index = index; //设置连接存放在connection列表中的索引号
+
+        parent = parentFromDCState (dc.state);  //设置拥有该Connection的Call对象
+        parent.attach(this, dc);    //将该connection添加到call中，并根据dc的状态修改call的状态
+    }
+
+    //用于呼出时，创建connection对象
+    /*package*/
+    GsmConnection (Context context, String dialString, GsmCallTracker ct, GsmCall parent) {
+        createWakeLock(context);
+        acquireWakeLock();
+
+        owner = ct; //设置管理该connection的calltracker对象
+        h = new MyHandler(owner.getLooper());   //设置connection自身的事件处理函数
+
+        this.dialString = dialString;   //设置呼叫的号码
+
+        this.address = PhoneNumberUtils.extractNetworkPortionAlt(dialString);   
+        this.postDialString = PhoneNumberUtils.extractPostDialPortion(dialString);
+
+        index = -1; //设置为－1,等待添加到connection列表中。
+
+        isIncoming = false; //设置为呼出
+        createTime = System.currentTimeMillis();    //设置创建的时间
+
+        this.parent = parent;   //设置拥有该connection对象的call对象
+        parent.attachFake(this, GsmCall.State.DIALING); //将该connection添加到call中，同时设置call的状态
+    }
+}
+}}}
+我们前面提过GsmCallTracker中实例化了三个Call对象：ringingCall,foregroundCall,backgroundCall,对应不同状态下的call,这三个对象如何使用的呢？
+答案就在GsmConnection的构造函数中，我们看到，在构造函数的末尾，都会设置该conneciton的parent,而parent对象是一个Call对象，然后调用这个Call的attachXXX()函数，下面就来看看这个函数具体做了什么。
+
+`GsmConnection.java`
+{{{class="brush: java"
+    //根据DriverCall状态设置connection所属的GsmCall对象
+    //owner即负责管理该conneciton的CallTracker对象
+    private GsmCall
+    parentFromDCState (DriverCall.State state) {
+        switch (state) {
+            case ACTIVE:
+            case DIALING:
+            case ALERTING:
+                //当DriverCall的状态属于ACTIVE|DIALING|ALERTING时，将其归为foregroundCall
+                return owner.foregroundCall;
+
+            case HOLDING:
+                //DriverCall处于HOLDING状态时，属于backgroundCall类
+                return owner.backgroundCall;
+
+            case INCOMING:
+            case WAITING:
+                //DriverCall处于INCOMING|WAITING状态时，属于ringingCall
+                return owner.ringingCall;
+
+            default:
+                throw new RuntimeException("illegal call state: " + state);
+        }
+    }
+}}}
+`GsmCall.java`
+{{{class="brush: java"
+    /*package*/ void
+    attach(Connection conn, DriverCall dc) {
+        //将conn添加到GsmCall维护的connections列表中
+        connections.add(conn);
+        
+        //设置所属GsmCall的状态
+        state = stateFromDCState (dc.state);
+    }
+
+    /*package*/ void
+    attachFake(Connection conn, State state) {
+        //将conn添加到GsmCall维护的connections列表中
+        connections.add(conn);
+        
+        //设置所属GsmCall的状态
+        this.state = state;
+    }
+    //根据DriverCall的状态设置GsmCall的状态
+    static State
+    stateFromDCState (DriverCall.State dcState) {
+        switch (dcState) {
+            case ACTIVE:        return State.ACTIVE;
+            case HOLDING:       return State.HOLDING;
+            case DIALING:       return State.DIALING;
+            case ALERTING:      return State.ALERTING;
+            case INCOMING:      return State.INCOMING;
+            case WAITING:       return State.WAITING;
+            default:            throw new RuntimeException ("illegal call state:" + dcState);
+        }
+    }
+}}}
+

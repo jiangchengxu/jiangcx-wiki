@@ -137,4 +137,7 @@ CommandsInterface接口定义了所有可以与rild 守护进程进行交互的�
 == CallTracker ==
 CallTracker,顾名思义，Telephony Framework中负责通话管理，是一个抽象类，具体的实现根据网络模式的不同，分为GSMCallTracker和CDMACallTracker,具体的分析请看[[android_calltracker|android CallTracker>]]
 
+== PhoneNotifier ==
+PhoneNotifier是phone应用使用的，将事件通知到第三方应用的接口。具体分析请看 [[android_phoneNotifier|Telephony PhoneNotifier类分析]]
+
 

@@ -12,4 +12,7 @@
 [[programming/android/index|Android系统分析]]
 ----
 
+
+= 日记 =
+[[diary/Linux-10000hours|Linux 10000小时]]
 %title 主页

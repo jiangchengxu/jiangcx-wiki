@@ -1,0 +1,6 @@
+Android Phone应用分析
+
+PhoneApp是Android系统负责通话的系统应用，为用户提供拨号，来电，通话界面和UI
+交互。
+PhoneApp通过在AndroidManifest.xml中指定android:persistent=true属性来设置App开机时启动并常驻内存。
+

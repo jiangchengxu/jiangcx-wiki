@@ -15,6 +15,7 @@ BaseCommands是一个抽象类，与PhoneBase类在Phone类架构中的功能相
 这是我们这篇介绍的重点。
 
 RIL是CommandsInterface接口的具体实现，负责具体的rild交互实现。PhoneApp在使用PhoneFactory构建PPhone具体实例的时候就会根据使用的网络模式构建RIL对象。
+`PhoneFactory.java`
 {{{class="brush: java"
     public static void makeDefaultPhone(Context context) {
         synchronized(Phone.class) {
@@ -49,7 +50,7 @@ RIL是CommandsInterface接口的具体实现，负责具体的rild交互实现�
 }}}
 下面我们来看具体的RIL.java实现
 
-RIL.java中包含4个类，主类是RIL， 辅助类RILRequest， 内部类RILSender和RILReceiver，下面我们对这写类的作用和实现详细分析。
+RIL.java文件中包含4个类，主类是RIL， 辅助类RILRequest， 内部类RILSender和RILReceiver，下面我们对这写类的作用和实现详细分析。
 
 === RILRequest ===
 RILRequest代表一个RIL请求，RILJ中AT相关的命令都会通过RILRequest.obtain(...)方法转化为系统支持的RIL_REQUEST_*格式指令，这些指令定义在RILConstants.java中，并且必须与rild中的定义对应，这也是我们开头提到的RILJ与RILD通信规范，方法最后会生成一个RILRequest对象，该对象会被发送到RILSender线程进行解析并通过rild scoket发送出去。

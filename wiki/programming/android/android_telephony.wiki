@@ -14,11 +14,11 @@ google将telephony framework的实现放在了两个java包中：
 {{../../../public/images/telephoney_framewoks_relations.jpg}}
 
 = 内部包 =
-支持所有的telephony功能,只能被Android自带的telephoney应用使用－Phone.apk
-内部包中包括所有telephony功能实现类，我们通过Phone.java作为引子进行分析：
+内部包是Android Telephony功能的底层实现，在com.android.phone进程中完成与通信模块的交互，并对Open package提供接口支持。
 
-=== `Phone.java` === 
-[[http://www.oschina.net/code/explore/android-4.0.1/telephony/java/com/android/internal/telephony/Phone.java|android源码]]
+Phone.java是整个Telephoney框架的关键点，与其他类有着千丝万缕的关系，我们以他作为我们分析的突破口。
+
+=== `Phone.java` === [[http://www.oschina.net/code/explore/android-4.0.1/telephony/java/com/android/internal/telephony/Phone.java|android源码]]
 
 {{{class="brush: java"
 public interface Phone{
@@ -51,8 +51,7 @@ public interface Phone{
 }}}
 从上面可以看出， 该接口仅仅定义了可以操作Phone的内部接口，如拨打、接听、拒接电话，获取通话状态，监听通话状态等, 其具体功能的实现是由PhoneBase和具体的GSMPhone或CDMAPhone来实现
 
-=== `PhoneBase.java` ===
-[[http://www.oschina.net/code/explore/android-4.0.1/telephony/java/com/android/internal/telephony/PhoneBase.java|android源码]]
+=== `PhoneBase.java` === [[http://www.oschina.net/code/explore/android-4.0.1/telephony/java/com/android/internal/telephony/PhoneBase.java|android源码]]
 
 PhoneBase是一个抽象类，在继承Handler的基础上实现了Phone接口中通用的部分，实现了Phone接口中注册和取消事件通知的接口：
 {{{class="brush: java"

@@ -2,7 +2,7 @@
 %template code_3
     = Android 系统分析 =
 
-= Android Telephoney系统 分析 =
+=1. Android Telephoney系统 分析 =
 
 Android Telephony系统是一个为手机提供通讯功能，如语音通话，短信，数据服务，网络管理等功能的软件框架，采用典型4分层的结构：
     * 无线模块驱动层
@@ -10,14 +10,14 @@ Android Telephony系统是一个为手机提供通讯功能，如语音通话，
     * telephony抽象接口层
     * telephony应用层
 
-== 1. 无线模块驱动层 ==
+== 1) 无线模块驱动层 ==
 主要是各种无线模块在linux的驱动实现
-== 2. telephony服务层 ==
-Android引入RIL机制，通过AT指令来监控和控制无线模块，具体的分析请看[[android_ril|这里]]
-== 3. telephony抽象接口层 ==
+== 2) telephony服务层 ==
+Android引入RIL中间层机制，起到沟通Telephony Framework和通信模块的功能，具体的分析请看[[android_rild|[这里]]
+== 3) telephony抽象接口层 ==
 提供了应用层可以使用的Telephony接口，通过socket与rild守护进程交互,具体的分析请看[[android_telephony|这里]]
-== 4. telephony应用层 ==
+== 4) telephony应用层 ==
 包括原生的PhoneApp及各种第三方telephony应用，对Android原生PhoneApp的分析请看[[android_phone|这里]]
 
 
-= Android 开机分析 =
+=2. Android 开机分析 =

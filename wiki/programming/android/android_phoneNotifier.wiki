@@ -112,11 +112,8 @@ interface ITelephonyRegistry {
 class TelephonyRegistry extends ITelephonyRegistry.Stub {
     private static class Record {
         String pkgForDebug;
-
         IBinder binder;
-
         IPhoneStateListener callback;
-
         int events;
     }
     public void listen(String pkgForDebug, IPhoneStateListener callback, int events,
@@ -153,8 +150,7 @@ class TelephonyRegistry extends ITelephonyRegistry.Stub {
 }
 }}}
 其中的listen(在第三方应用中调用)方法将注册的IPhoneStateListener构成Record对象，添加到mRecords列表中，当相应的事件触发后，调用phone进程调用notify函数进行通知，并发送广播。我们以notifyCallState为例看看是如何通知其他应用的。
-
-{{{
+{{{class="brush: java"
     public void notifyCallState(int state, String incomingNumber) {
         if (!checkNotifyPermission("notifyCallState()")) {
             return;

@@ -1,0 +1,11 @@
+vim插件Command-T
+
+使用Bundle安装Command-T步骤
+# 在.vimrc中添加Command-T的script地址：Bundle 'Command-T'
+# 使用vim打开一个文件，执行:BundleInstall安装Command-T
+# 切到Command-T插件目录~/.vim/bundle/Command-T/ruby/command-t,执行命令ruby extconf.rb,若出现错误提示：extconf.rb:24:in `require': no such file to load -- mkmf (LoadError) from extconf.rb:24,则运行: sudo apt-get install build-essential libopenssl-ruby ruby1.8-dev
+# 执行make 
+
+使用：
+:CommandT
+

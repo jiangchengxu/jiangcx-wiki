@@ -6,7 +6,6 @@
 从前面的分析我们可以看到，PhoneFactory根据实际的网络类型来创建对应的Phone类型，在实例化GSMPhone时，创建与电话功能相关的各个功能模块：
 
 GSMPhone.java
-
 {{{class="brush: java"
     public
     GSMPhone (Context context, CommandsInterface ci, PhoneNotifier notifier, boolean unitTestMode) {

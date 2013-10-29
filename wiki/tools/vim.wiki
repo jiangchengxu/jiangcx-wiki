@@ -1,4 +1,5 @@
-Vim
+{{../../public/images/Wiki-wordmark.png}} 
+ = Vim =
 
 == 复制黏贴 ==
 

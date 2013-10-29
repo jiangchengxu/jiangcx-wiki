@@ -1469,8 +1469,7 @@ error:
 }}}
 在使用writeLine(）将AT命令发送到串口后，函数便开始等待信号s_commandcond来获取命令的处理结果。而该信号又是在何时何地发送的呢？
 
-大家是否记得前面讲到的rild调用libril的RIL_Init(）函数，创建的s_tid_reader线程，该线程用于读取modem发送过来的数据，自然也包括命令的反馈结果啦。如果记不太清楚了，请点击
-<a href="#tag_s_tid_reader">这里</a>。
+大家是否记得前面讲到的rild调用libril的RIL_Init(）函数，创建的s_tid_reader线程，该线程用于读取modem发送过来的数据，自然也包括命令的反馈结果啦。如果记不太清楚了，请点击 <a href="#tag_s_tid_reader">【这里】</a>。
 
 处理完发过来的请求后，通过RIL_onRequestComplete()函数将命令的处理结果发送给RILJ,该函数的分析请看这里<a href="#tag_onrequestcomplete">【这里】</a>
 

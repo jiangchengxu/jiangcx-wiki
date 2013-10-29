@@ -319,18 +319,25 @@ static void firePending()
 做个总结：
 rild启动线程s_tid_dispatch,等待readFds集合中有描述符可读，一旦select返回，便处理watch_list和pending_list中的事件，调用这些事件的处理函数。其他线程可以通过rilEventAddWakeup()函数将事件添加到watch_list,该函数会自动将新添加的ril_event的文件句柄添加到readFds中，同时，该函数还会通过往匿名管道写端s_fdWakeupWrite中写入数据，使readFds中匿名管道读端描述符s_fdWakeupRead可读，从而触发select返回。
 
+再来个eventLoop的处理流程图，也从网上K来的
+
+{{../../../public/images/ril_eventloop1.jpg}}
+再来一张
+
+{{../../../public/images/ril_eventloop2.jpg}}
+
 s_tid_dispatch线程启动后，便会阻塞在select(）调用，此时readFds集合中只有s_fdWakeupRead描述符，等待其他线程通过s_fdWakeupWrite端口写入数据来激活s_tid_dispatch线程进行事件处理。
 
 ----
 == 3, 初始化libril==
 RIL_Init是所有的libril共享库必须提供的函数，rild通过调用这个函数，使用libril共享库完成对Modem设备的操作。
 
-在开始具体的代码分析之前，我们还是先考虑一下libril的工作任务和设计理念：
+在开始具体的代码分析之前，我们还是先考虑一下libril的工作任务：
 rild使用libril，实现发送指令给通信模块并获取指令响应以及获取通信模块上报的信息。而libril由生产商为不同的通信模块量身定制，其具体实现对于rild来说是透明的。rild如何将命令发送到libril而libril又如何将处理结果发送给rild的呢？
 
 android采用rild负责定义输出规范，而libril负责定义输入规范的方式解决这个问题，rild通过libril定义的输入规范将命令发送到libril,libril在处理完后，将处理结果按照rild定义的输出规范发送出来。
 
-知道了他的实现方式后，我们看代码就比较容易了，首先看看rillib提供的RIL_Init注册函数：
+知道了他的实现方式后，我们看代码就比较容易了，首先看看rillib提供的RIL_Init(）注册函数：
 
 `reference-ril.c`
 {{{class="brush: c"
@@ -343,7 +350,7 @@ const RIL_RadioFunctions *RIL_Init(const struct RIL_Env *env, int argc, char **a
     int opt;
     pthread_attr_t attr;
 
-    //将rild发送过来的回调函数保存下来
+    //将rild发送过来的回调函数保存下来，供libril以后调用
     s_rilenv = env;
 
     ......
@@ -356,18 +363,176 @@ const RIL_RadioFunctions *RIL_Init(const struct RIL_Env *env, int argc, char **a
 }
 }}}
 
-- 函数接收一个RIL_Env结构指针，该结构就是rild定义的输出规范，由rild实现，由libril调用，向rild发送请求处理结果或主动上报信息
+1. 函数接收一个RIL_Env结构指针，该结构就是rild定义的输出规范，由rild实现，由libril调用，向rild发送请求处理结果或主动上报信息
 
 `rild.c`
 {{{class="brush: c"
 static struct RIL_Env s_rilEnv = {
-    RIL_onRequestComplete,      //rillib处理非主动命令的回调函数
-    RIL_onUnsolicitedResponse,  //rillib处理主动命令的回调函数
-    RIL_requestTimedCallback    //rillib处理超时请求的回调函数
+    RIL_onRequestComplete,      //处理非主动命令时libril的回调函数
+    RIL_onUnsolicitedResponse,  //处理主动命令时libril的回调函数
+    RIL_requestTimedCallback    //处理超时请求时libril的回调函数
 };
 }}}
 
-- 函数返回一个RIL_RadioFunctions结构指针，该结构是libril定义的输入规范，由libril实现，由rild调用，向libril发送请求。
+1.1 RIL_onUnsolicitedResponse(）用于处理主动上报命令。
+{{{class="brush: cpp"
+extern "C"
+void RIL_onUnsolicitedResponse(int unsolResponse, void *data,
+                                size_t datalen)
+{
+    int unsolResponseIndex;
+    int ret;
+    int64_t timeReceived = 0;
+    bool shouldScheduleTimeout = false;
+
+    if (s_registerCalled == 0) {
+        // Ignore RIL_onUnsolicitedResponse before RIL_register
+        LOGW("RIL_onUnsolicitedResponse called before RIL_register");
+        return;
+    }
+
+    unsolResponseIndex = unsolResponse - RIL_UNSOL_RESPONSE_BASE;
+
+    if ((unsolResponseIndex < 0)
+        || (unsolResponseIndex >= (int32_t)NUM_ELEMS(s_unsolResponses))) {
+        LOGE("unsupported unsolicited response code %d", unsolResponse);
+        return;
+    }
+
+    // Grab a wake lock if needed for this reponse,
+    // as we exit we'll either release it immediately
+    // or set a timer to release it later.
+    switch (s_unsolResponses[unsolResponseIndex].wakeType) {
+        case WAKE_PARTIAL:
+            grabPartialWakeLock();
+            shouldScheduleTimeout = true;
+        break;
+
+        case DONT_WAKE:
+        default:
+            // No wake lock is grabed so don't set timeout
+            shouldScheduleTimeout = false;
+            break;
+    }
+
+    // Mark the time this was received, doing this
+    // after grabing the wakelock incase getting
+    // the elapsedRealTime might cause us to goto
+    // sleep.
+    if (unsolResponse == RIL_UNSOL_NITZ_TIME_RECEIVED) {
+        timeReceived = elapsedRealtime();
+    }
+
+    appendPrintBuf("[UNSL]< %s", requestToString(unsolResponse));
+
+    Parcel p;
+
+    p.writeInt32 (RESPONSE_UNSOLICITED);    //写入请求的类型
+    p.writeInt32 (unsolResponse);       //写入请求的ID
+
+    //s_unsolResponses是一个数组。里面包含所有rild支持的主动上报请求及其相应的处理函数
+    ret = s_unsolResponses[unsolResponseIndex]
+                .responseFunction(p, data, datalen);
+    if (ret != 0) {
+        // Problem with the response. Don't continue;
+        goto error_exit;
+    }
+
+    // some things get more payload
+    switch(unsolResponse) {
+        case RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED:
+            p.writeInt32(s_callbacks.onStateRequest());
+            appendPrintBuf("%s {%s}", printBuf,
+                radioStateToString(s_callbacks.onStateRequest()));
+        break;
+
+
+        case RIL_UNSOL_NITZ_TIME_RECEIVED:
+            // Store the time that this was received so the
+            // handler of this message can account for
+            // the time it takes to arrive and process. In
+            // particular the system has been known to sleep
+            // before this message can be processed.
+            p.writeInt64(timeReceived);
+        break;
+    }
+
+    //将p通过s_fdCommand socket发送出去
+    ret = sendResponse(p);
+    ......
+    return;
+
+error_exit:
+    if (shouldScheduleTimeout) {
+        releaseWakeLock();
+    }
+}
+}}}
+
+1.2 <a name="tag_onrequestcomplete">RIL_onRequestComplete()</a>在libril处理非主动命令时调用，将处理结果通过socket发送到RILJ
+{{{class="brush: cpp"
+extern "C" void
+RIL_onRequestComplete(RIL_Token t, RIL_Errno e, void *response, size_t responselen) {
+    RequestInfo *pRI;
+    int ret;
+    size_t errorOffset;
+
+    pRI = (RequestInfo *)t;
+
+    if (!checkAndDequeueRequestInfo(pRI)) {
+        LOGE ("RIL_onRequestComplete: invalid RIL_Token");
+        return;
+    }
+
+    if (pRI->local > 0) {
+        // Locally issued command...void only!
+        // response does not go back up the command socket
+        LOGD("C[locl]< %s", requestToString(pRI->pCI->requestNumber));
+
+        goto done;
+    }
+
+    appendPrintBuf("[%04d]< %s",
+        pRI->token, requestToString(pRI->pCI->requestNumber));
+
+    if (pRI->cancelled == 0) {
+        Parcel p;
+
+        p.writeInt32 (RESPONSE_SOLICITED);  //写入请求的类型
+        p.writeInt32 (pRI->token);          //写入请求的序列号
+        errorOffset = p.dataPosition();
+
+        p.writeInt32 (e);
+
+        if (response != NULL) {
+            //将modem反馈的请求结果进行初步处理处理
+            ret = pRI->pCI->responseFunction(p, response, responselen);
+
+            /* if an error occurred, rewind and mark it */
+            if (ret != 0) {
+                p.setDataPosition(errorOffset);
+                p.writeInt32 (ret);
+            }
+        }
+
+        if (e != RIL_E_SUCCESS) {
+            appendPrintBuf("%s fails by %s", printBuf, failCauseToString(e));
+        }
+
+        if (s_fdCommand < 0) {
+            LOGD ("RIL onRequestComplete: Command channel closed");
+        }
+        //通过s_fdCommand将p发送到RILJ
+        sendResponse(p);
+    }
+
+done:
+    free(pRI);
+}
+}}}
+
+
+2. 函数返回一个RIL_RadioFunctions结构指针，该结构是libril定义的输入规范，由libril实现，由rild调用，用来向libril发送请求。
 
 `ril.h`
 {{{class="brush: c"
@@ -381,7 +546,8 @@ typedef struct {
 } RIL_RadioFunctions;
 }}}
 
-- 函数创建了一个新的线程s_tid_mainloop,该线程的入口函数mainLoop(）。注意libril只是一个共享库文件，其代码在rild进程中执行。线程的主要任务是获取AT串口设备句柄，用于后续通过该句柄发送命令给通信模块，并启动监听该句柄，当Modem通过句柄发送信息过来时，进行处理。
+
+3. 函数创建了一个新的线程s_tid_mainloop,该线程的入口函数mainLoop(）。注意libril只是一个共享库文件，函数实际在rild进程中运行。线程的主要任务是获取AT串口设备句柄，用于后续通过该句柄发送命令给通信模块，并启动监听该句柄，当Modem通过句柄发送信息过来时，进行处理。
 
 `reference-ril.c`
 {{{class="brush: c"
@@ -429,15 +595,22 @@ mainLoop(void *param)
     }
 }
 }}}
+下面拿出两个关键的函数来分析：
 
-==== 3.1 设置读取at串口设备的工作线程 ====
-at_open()函数会创建一个s_tid_reader线程，入口函数是readerLoop(）,该线程的主要工作是不断的读取串口设备发送过来的数据，并进行处理。
+==== 3.1 创建读取at串口设备的工作线程 ====
+at_open()函数会创建一个<a name="tag_s_tid_reader">s_tid_reader</a>线程，入口函数是readerLoop(）,该线程的主要工作是不断的读取串口设备发送过来的数据，并进行处理。
 
 `atchannel.c`
 {{{class="brush: c"
 int at_open(int fd, ATUnsolHandler h)
 {
     ......
+    
+    s_fd = fd;
+    s_unsolHandler = h; 
+
+    ......
+    
     pthread_attr_init (&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
@@ -450,7 +623,7 @@ static void *readerLoop(void *arg)
     for (;;) {
         const char * line;
 
-        //从串口中不断的读取数据，当读到一条完整的指令时，返回
+        //从串口中不断的读取数据，直到读取一行数据
         line = readline();
 
         if (line == NULL) {
@@ -478,7 +651,7 @@ static void *readerLoop(void *arg)
             }
             free(line1);
         } else {
-            //对其他数据的处理
+            //对该行数据进行处理
             processLine(line);
         }
         ......
@@ -489,52 +662,56 @@ static void *readerLoop(void *arg)
     return NULL;
 }
 }}}
-processLine用于对从串口读回的数据进行处理
+processLine(）用于对从串口读回的每行数据进行处理
 {{{class="brush: c"
 static void processLine(const char *line)
 {
     pthread_mutex_lock(&s_commandmutex);
 
     if (sp_response == NULL) {
-        /* no command pending */
+        //sp_response=NULL表示当前没有命令发出，所以为modem的主动上报信息
         handleUnsolicited(line);
     } else if (isFinalResponseSuccess(line)) {
+        //命令最终处理结果：返回SUCCESS
         sp_response->success = 1;
         handleFinalResponse(line);
     } else if (isFinalResponseError(line)) {
+        //命令最终处理结果：返回ERROR
         sp_response->success = 0;
         handleFinalResponse(line);
     } else if (s_smsPDU != NULL && 0 == strcmp(line, "> ")) {
+        //发送短信的AT命令的特殊处理
         // See eg. TS 27.005 4.3
         // Commands like AT+CMGS have a "> " prompt
         writeCtrlZ(s_smsPDU);
         s_smsPDU = NULL;
     } else switch (s_type) {
         case NO_RESULT:
+            //当前命令不会导致modem反馈处理结果，此时读到的信息作为主动上报信息处理
             handleUnsolicited(line);
             break;
         case NUMERIC:
+            //判断是否是当前命令的处理结果，如果是，则保存处理结果，否则作为主动上报信息处理
             if (sp_response->p_intermediates == NULL
                 && isdigit(line[0])
             ) {
                 addIntermediate(line);
             } else {
-                /* either we already have an intermediate response or
-                   the line doesn't begin with a digit */
                 handleUnsolicited(line);
             }
             break;
         case SINGLELINE:
+            //判断是否是当前命令的处理结果，如果是，则保存处理结果，否则作为主动上报信息处理
             if (sp_response->p_intermediates == NULL
                 && strStartsWith (line, s_responsePrefix)
             ) {
                 addIntermediate(line);
             } else {
-                /* we already have an intermediate response */
                 handleUnsolicited(line);
             }
             break;
         case MULTILINE:
+            //判断是否是当前命令的处理结果，如果是，则保存处理结果，否则作为主动上报信息处理
             if (strStartsWith (line, s_responsePrefix)) {
                 addIntermediate(line);
             } else {
@@ -551,17 +728,152 @@ static void processLine(const char *line)
     pthread_mutex_unlock(&s_commandmutex);
 }
 }}}
+从这里的处理来看，s_tid_reader线程在读到数据后，会根据当前命令的状态判断读到的数据是当前命令的处理结果还是modem主动上报的信息，主动命令由handleUnsolicited(）函数处理，命令的处理结果则是由handleFinalResponse(）函数处理。
+
+`atchannel.c`
+
+{{{class="brush: c"
+static void handleFinalResponse(const char *line)
+{
+    sp_response->finalResponse = strdup(line);
+    
+    发送s_commandcond信号，通知正在等待处理结果的at_send_command_full_nolock()函数。
+    pthread_cond_signal(&s_commandcond);
+}
+}}}
+{{{class="brush: c"
+//主动上报信息的处理
+static void handleUnsolicited(const char *line)
+{
+    if (s_unsolHandler != NULL) {
+        s_unsolHandler(line, NULL);
+    }
+}
+}}}
+非主动上报的命令处理时，只是将s_commandcond信号发送出去，此时，发送命令的线程正在等待获取该信号以进一步处理。这部分会在后面看到。
+
+对于主动上报的信息，调用了s_unsolHandler(）函数处理，而该函数是在libril的RIL_Init(）函数中，打开at设备时传入的。
+
+`reference-ril.c`
+{{{class="brush: c"
+void main(){
+    ......
+
+    s_closed = 0;
+    ret = at_open(fd, onUnsolicited);
+
+    if (ret < 0) {
+        LOGE ("AT error %d on at_open\n", ret);
+        return 0;
+    }
+    ......
+}
+}}}
+`atchannel.c`
+{{{class="brush: c"
+int at_open(int fd, ATUnsolHandler h)
+{
+    int ret;
+    pthread_t tid;
+    pthread_attr_t attr;
+
+    s_fd = fd;
+    s_unsolHandler = h;
+    s_readerClosed = 0;
+}}}
+
+onUnsolicited()函数用于处理通过modem读取到的主动上报信息。运行在atchannel的reader线程中。
+
+`reference-ril.c`
+{{{class="brush: c"
+static void onUnsolicited (const char *s, const char *sms_pdu)
+{
+    char *line = NULL;
+    int err;
+
+    /* Ignore unsolicited responses until we're initialized.
+     * This is OK because the RIL library will poll for initial state
+     */
+    if (sState == RADIO_STATE_UNAVAILABLE) {
+        return;
+    }
+
+    if (strStartsWith(s, "%CTZV:")) {
+        /* TI specific -- NITZ time */
+        char *response;
+
+        line = strdup(s);
+        at_tok_start(&line);
+
+        err = at_tok_nextstr(&line, &response);
+
+        if (err != 0) {
+            LOGE("invalid NITZ line %s\n", s);
+        } else {
+            RIL_onUnsolicitedResponse (
+                RIL_UNSOL_NITZ_TIME_RECEIVED,
+                response, strlen(response));
+        }
+    } else if (strStartsWith(s,"+CRING:")
+                || strStartsWith(s,"RING")
+                || strStartsWith(s,"NO CARRIER")
+                || strStartsWith(s,"+CCWA")
+    ) {
+        RIL_onUnsolicitedResponse (
+            RIL_UNSOL_RESPONSE_CALL_STATE_CHANGED,
+            NULL, 0);
+#ifdef WORKAROUND_FAKE_CGEV
+        RIL_requestTimedCallback (onDataCallListChanged, NULL, NULL); //TODO use new function
+#endif /* WORKAROUND_FAKE_CGEV */
+    } else if (strStartsWith(s,"+CREG:")
+                || strStartsWith(s,"+CGREG:")
+    ) {
+        RIL_onUnsolicitedResponse (
+            RIL_UNSOL_RESPONSE_VOICE_NETWORK_STATE_CHANGED,
+            NULL, 0);
+#ifdef WORKAROUND_FAKE_CGEV
+        RIL_requestTimedCallback (onDataCallListChanged, NULL, NULL);
+#endif /* WORKAROUND_FAKE_CGEV */
+    } else if (strStartsWith(s, "+CMT:")) {
+        RIL_onUnsolicitedResponse (
+            RIL_UNSOL_RESPONSE_NEW_SMS,
+            sms_pdu, strlen(sms_pdu));
+    } else if (strStartsWith(s, "+CDS:")) {
+        RIL_onUnsolicitedResponse (
+            RIL_UNSOL_RESPONSE_NEW_SMS_STATUS_REPORT,
+            sms_pdu, strlen(sms_pdu));
+    } else if (strStartsWith(s, "+CGEV:")) {
+        /* Really, we can ignore NW CLASS and ME CLASS events here,
+         * but right now we don't since extranous
+         * RIL_UNSOL_DATA_CALL_LIST_CHANGED calls are tolerated
+         */
+        /* can't issue AT commands here -- call on main thread */
+        RIL_requestTimedCallback (onDataCallListChanged, NULL, NULL);
+#ifdef WORKAROUND_FAKE_CGEV
+    } else if (strStartsWith(s, "+CME ERROR: 150")) {
+        RIL_requestTimedCallback (onDataCallListChanged, NULL, NULL);
+#endif /* WORKAROUND_FAKE_CGEV */
+    }
+}
+}}}
+
+最终函数调用RIL_onUnsolicitedResponse()，通过这种方式,libril调用到了rild的RIL_onUnsolicitedResponse(）。该函数的分析请看 <a href="#tag_ril_env">【这里】</a>
+
+至于非主动命令的处理，会在下面发送请求的部分详细分析。
+
 总结：
 通过调用at_open(）函数，rild此时有了读取AT串口设备并对数据进行处理的能力。此时可以处理AT请求及通信设备的主动上报信息。但此时mainLoop(）还没有执行完呢，接下来
 
 ==== 3.2 初始化AT设备==== 
 
 打通串口设备数据通路后，就该对通信设备进行初始化了。这个工作是由RIL_requestTimedCallback宏完成，还记得前面调用RIL_Init(）函数时传入的RIL_Env结构吧，这个宏其实就调用了该结构的RequestTimedCallback(）函数指针。
+
 `reference-ril.c`
 {{{class="brush: c"
 #define RIL_requestTimedCallback(a,b,c) s_rilenv->RequestTimedCallback(a,b,c)
 }}}
-你应该还记得RIL_Env的功能，他由rild定义，由rillib调用，此处，rillib通过调用该函数，通知rild在ril_event列表中添加一个定时事件，事件具体的工作内容在userTimerCallback(）中，定的时间是TIMEVAL_0=0,即立即执行。下面看看他的具体实现：
+你应该还记得RIL_Env的功能，他由rild定义，由libril调用，主要用于libril向rild反馈modem的主动上报信息，libril通过调用该函数，通知rild在ril_event列表中添加一个定时事件，事件具体的工作内容在userTimerCallback(）中，定的时间是TIMEVAL_0=0,即立即执行。下面看看他的具体实现：
+
 `ril.cpp`
 {{{class="brush: cpp"
 extern "C" void
@@ -725,7 +1037,7 @@ RIL_register使用linux的socket编程方式，创建名为SOCKET_NAME_RIL的soc
 # 处理完所有的事情后，这一轮处理就完成了
 # 于是从新进行第一步，等待readFds中有事情发生，不过此时，readFds中除了s_fdWakeupRead外，又新加了一主儿s_fdListen.
 
-由于readFds此时已经保存了s_fdListen句柄，所以当RILJ发送socket连接后，select就会从堵塞中返回，开始处理s_listen_event,等待读取socket发送过来的数据，创建一个命令事件s_commands_event，并添加到watch_table,并立即触发rilevent事件处理，命令事件的处理函数入口是processCommandsCallback.
+由于readFds此时已经保存了s_fdListen句柄，所以当RILJ发送socket连接后，select就会从堵塞中返回，开始处理s_listen_event,等待读取socket发送过来的数据，从监听的socket中读到数据后，就创建一个命令事件s_commands_event，再添加到ril_event事件循环中去处理，命令事件的处理函数入口是processCommandsCallback().
 
 `ril.cpp`
 {{{class="brush: cpp"
@@ -741,8 +1053,12 @@ static void listenCallback (int fd, short flags, void *param) {
     s_fdCommand = accept(s_fdListen, (sockaddr *) &peeraddr, &socklen);
     ......
 
+    //创建一个RecordStream结构对象
     p_rs = record_stream_new(s_fdCommand, MAX_COMMAND_BYTES);
 
+    //读到数据后，放到ril_event事件处理循环中处理，注意此事件persist=1
+    //s_fdCommand添加到readFds中后，后续发来请求时，select(）就可以直接响应，而s_command_event又是持久存在的，所以就可以直接通过该事件的处理函数 processCommandsCallback()来处理啦。
+    //而对于s_fdListen,处理完后，由于watch_list中已经没有对应的s_listen_event事件，虽然依然存在于readFds中，也无法接收新的RILJ连接了。
     ril_event_set (&s_commands_event, s_fdCommand, 1,
         processCommandsCallback, p_rs);
 
@@ -750,6 +1066,10 @@ static void listenCallback (int fd, short flags, void *param) {
 
     onNewCommandConnect();
 }
+}}}
+
+处理发过来的数据
+{{{class="brush: cpp"
 static void processCommandsCallback(int fd, short flags, void *param) {
     RecordStream *p_rs;
     void *p_record;
@@ -760,7 +1080,7 @@ static void processCommandsCallback(int fd, short flags, void *param) {
 
     p_rs = (RecordStream *)param;
 
-    //循环读取socket中的数据，直到socket中没有数据
+    //不断读取socket中的数据，直到socket关闭或读取出错
     for (;;) {
         /* loop until EAGAIN/EINTR, end of stream, or other error */
         ret = record_stream_get_next(p_rs, &p_record, &recordlen);
@@ -776,7 +1096,7 @@ static void processCommandsCallback(int fd, short flags, void *param) {
         }
     }
 
-    //处理完socket中所有的请求后，关闭当前句柄
+    //当socket被关闭时，重新添加监听
     if (ret == 0 || !(errno == EAGAIN || errno == EINTR)) {
         /* fatal error or end-of-stream */
         if (ret != 0) {
@@ -788,11 +1108,13 @@ static void processCommandsCallback(int fd, short flags, void *param) {
         close(s_fdCommand);
         s_fdCommand = -1;
 
+        //因为s_commands_event为持久事件，这里手动删除
         ril_event_del(&s_commands_event);
 
         record_stream_free(p_rs);
 
         /* start listening for new connections again */
+        //重新添加s_listen_event,准备接受新的连接
         rilEventAddWakeup(&s_listen_event);
 
         onCommandsSocketClosed();
@@ -800,7 +1122,11 @@ static void processCommandsCallback(int fd, short flags, void *param) {
 }
 }}}
 
-由processCommandBuffer(）来处理具体的请求
+从上面代码可以看出，rild在接收到RILJ的连接请求后，就不再接收RILJ新的连接请求，只有在当前的连接中断或出现读取数据错误时，才会重新准备接受RILJ新的连接请求。
+
+RILJ发送的请求最终由processCommandBuffer(）来处理
+
+`ril.cpp`
 {{{class="brush: cpp"
 processCommandBuffer(void *buffer, size_t buflen) {
     Parcel p;
@@ -813,8 +1139,8 @@ processCommandBuffer(void *buffer, size_t buflen) {
     p.setData((uint8_t *) buffer, buflen);
 
     // status checked at end
-    status = p.readInt32(&request);
-    status = p.readInt32 (&token);
+    status = p.readInt32(&request); //读取请求ID
+    status = p.readInt32 (&token);  //读取该请求的序列号
 
     if (status != NO_ERROR) {
         LOGE("invalid request block");
@@ -830,39 +1156,32 @@ processCommandBuffer(void *buffer, size_t buflen) {
     pRI = (RequestInfo *)calloc(1, sizeof(RequestInfo));
 
     pRI->token = token;
-    pRI->pCI = &(s_commands[request]);
+    pRI->pCI = &(s_commands[request]);//根据请求ID找到对应的处理函数
 
     ret = pthread_mutex_lock(&s_pendingRequestsMutex);
     assert (ret == 0);
 
+    //将请求添加到请求列表中
     pRI->p_next = s_pendingRequests;
     s_pendingRequests = pRI;
 
     ret = pthread_mutex_unlock(&s_pendingRequestsMutex);
     assert (ret == 0);
 
-/*    sLastDispatchedToken = token; */
-
+    //调用对用的dispatchFunction()
     pRI->pCI->dispatchFunction(p, pRI);
 
     return 0;
 }
 }}}
-processCommandBuffer负责解析socket发送过来的请求，并根据请求的ID ，在s_commands中找到对应的处理函数,调用dispatchFunction.s_commands是一个CommandInfo结构的数组，包含了ril支持的AT指令他对应指令的处理函数
 
-`ril.cpp`
+s_commands是一个CommandInfo结构的数组，包含了ril_commands.h头文件
 {{{class="brush: cpp"
-typedef struct {
-    int requestNumber;
-    void (*dispatchFunction) (Parcel &p, struct RequestInfo *pRI);
-    int(*responseFunction) (Parcel &p, void *response, size_t responselen);
-} CommandInfo;
-
-/** Index == requestNumber */
 static CommandInfo s_commands[] = {
 #include "ril_commands.h"
 };
 }}}
+而ril_command.h是一个映射表，包含所有rild支持的请求及对应的处理响应函数。这里的请求ID要与RILJ的RIL_Constants.java中ID号保持一致。
 
 `ril_commands.h`
 {{{class="brush: cpp"
@@ -880,6 +1199,9 @@ static CommandInfo s_commands[] = {
     {RIL_REQUEST_GET_IMSI, dispatchVoid, responseString},
     ......
 }}}
+
+rild将RIJL发送过来的请求封装为一个RequestInfo,并添加到内部维护的RequestInfo列表中。并根据请求的ID，在s_commands中找到对应的处理函数,调用对应的dispatchXXX(）函数，该函数最终调用libril提供的onRequest(）方法将请求交到libril手中。
+
 我们以dispatchVoid为例
 {{{class="brush: cpp"
 /** Callee expects NULL */
@@ -890,8 +1212,7 @@ dispatchVoid (Parcel& p, RequestInfo *pRI) {
 }
 }}}
 
-下面看看rillib如何发送的指令
-
+接下来，我们深入到libril看看onRequest(）是如何将消息发送到modem并接收modem响应的。
 `reference-ril.c`
 {{{class="brush: c"
 static void
@@ -950,229 +1271,8 @@ onRequest (int request, void *data, size_t datalen, RIL_Token t)
         case RIL_REQUEST_HANGUP:
             requestHangup(data, datalen, t);
             break;
-        case RIL_REQUEST_HANGUP_WAITING_OR_BACKGROUND:
-            // 3GPP 22.030 6.5.5
-            // "Releases all held calls or sets User Determined User Busy
-            //  (UDUB) for a waiting call."
-            at_send_command("AT+CHLD=0", NULL);
 
-            /* success or failure is ignored by the upper layer here.
-               it will call GET_CURRENT_CALLS and determine success that way */
-            RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
-            break;
-        case RIL_REQUEST_HANGUP_FOREGROUND_RESUME_BACKGROUND:
-            // 3GPP 22.030 6.5.5
-            // "Releases all active calls (if any exist) and accepts
-            //  the other (held or waiting) call."
-            at_send_command("AT+CHLD=1", NULL);
-
-            /* success or failure is ignored by the upper layer here.
-               it will call GET_CURRENT_CALLS and determine success that way */
-            RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
-            break;
-        case RIL_REQUEST_SWITCH_WAITING_OR_HOLDING_AND_ACTIVE:
-            // 3GPP 22.030 6.5.5
-            // "Places all active calls (if any exist) on hold and accepts
-            //  the other (held or waiting) call."
-            at_send_command("AT+CHLD=2", NULL);
-
-#ifdef WORKAROUND_ERRONEOUS_ANSWER
-            s_expectAnswer = 1;
-#endif /* WORKAROUND_ERRONEOUS_ANSWER */
-
-            /* success or failure is ignored by the upper layer here.
-               it will call GET_CURRENT_CALLS and determine success that way */
-            RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
-            break;
-        case RIL_REQUEST_ANSWER:
-            at_send_command("ATA", NULL);
-
-#ifdef WORKAROUND_ERRONEOUS_ANSWER
-            s_expectAnswer = 1;
-#endif /* WORKAROUND_ERRONEOUS_ANSWER */
-
-            /* success or failure is ignored by the upper layer here.
-               it will call GET_CURRENT_CALLS and determine success that way */
-            RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
-            break;
-        case RIL_REQUEST_CONFERENCE:
-            // 3GPP 22.030 6.5.5
-            // "Adds a held call to the conversation"
-            at_send_command("AT+CHLD=3", NULL);
-
-            /* success or failure is ignored by the upper layer here.
-               it will call GET_CURRENT_CALLS and determine success that way */
-            RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
-            break;
-        case RIL_REQUEST_UDUB:
-            /* user determined user busy */
-            /* sometimes used: ATH */
-            at_send_command("ATH", NULL);
-
-            /* success or failure is ignored by the upper layer here.
-               it will call GET_CURRENT_CALLS and determine success that way */
-            RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
-            break;
-
-        case RIL_REQUEST_SEPARATE_CONNECTION:
-            {
-                char  cmd[12];
-                int   party = ((int*)data)[0];
-
-                // Make sure that party is in a valid range.
-                // (Note: The Telephony middle layer imposes a range of 1 to 7.
-                // It's sufficient for us to just make sure it's single digit.)
-                if (party > 0 && party < 10) {
-                    sprintf(cmd, "AT+CHLD=2%d", party);
-                    at_send_command(cmd, NULL);
-                    RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
-                } else {
-                    RIL_onRequestComplete(t, RIL_E_GENERIC_FAILURE, NULL, 0);
-                }
-            }
-            break;
-
-        case RIL_REQUEST_SIGNAL_STRENGTH:
-            requestSignalStrength(data, datalen, t);
-            break;
-        case RIL_REQUEST_VOICE_REGISTRATION_STATE:
-        case RIL_REQUEST_DATA_REGISTRATION_STATE:
-            requestRegistrationState(request, data, datalen, t);
-            break;
-        case RIL_REQUEST_OPERATOR:
-            requestOperator(data, datalen, t);
-            break;
-        case RIL_REQUEST_RADIO_POWER:
-            requestRadioPower(data, datalen, t);
-            break;
-        case RIL_REQUEST_DTMF: {
-            char c = ((char *)data)[0];
-            char *cmd;
-            asprintf(&cmd, "AT+VTS=%c", (int)c);
-            at_send_command(cmd, NULL);
-            free(cmd);
-            RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
-            break;
-        }
-        case RIL_REQUEST_SEND_SMS:
-            requestSendSMS(data, datalen, t);
-            break;
-        case RIL_REQUEST_SETUP_DATA_CALL:
-            requestSetupDataCall(data, datalen, t);
-            break;
-        case RIL_REQUEST_SMS_ACKNOWLEDGE:
-            requestSMSAcknowledge(data, datalen, t);
-            break;
-
-        case RIL_REQUEST_GET_IMSI:
-            p_response = NULL;
-            err = at_send_command_numeric("AT+CIMI", &p_response);
-
-            if (err < 0 || p_response->success == 0) {
-                RIL_onRequestComplete(t, RIL_E_GENERIC_FAILURE, NULL, 0);
-            } else {
-                RIL_onRequestComplete(t, RIL_E_SUCCESS,
-                    p_response->p_intermediates->line, sizeof(char *));
-            }
-            at_response_free(p_response);
-            break;
-
-        case RIL_REQUEST_GET_IMEI:
-            p_response = NULL;
-            err = at_send_command_numeric("AT+CGSN", &p_response);
-
-            if (err < 0 || p_response->success == 0) {
-                RIL_onRequestComplete(t, RIL_E_GENERIC_FAILURE, NULL, 0);
-            } else {
-                RIL_onRequestComplete(t, RIL_E_SUCCESS,
-                    p_response->p_intermediates->line, sizeof(char *));
-            }
-            at_response_free(p_response);
-            break;
-
-        case RIL_REQUEST_SIM_IO:
-            requestSIM_IO(data,datalen,t);
-            break;
-
-        case RIL_REQUEST_SEND_USSD:
-            requestSendUSSD(data, datalen, t);
-            break;
-
-        case RIL_REQUEST_CANCEL_USSD:
-            p_response = NULL;
-            err = at_send_command_numeric("AT+CUSD=2", &p_response);
-
-            if (err < 0 || p_response->success == 0) {
-                RIL_onRequestComplete(t, RIL_E_GENERIC_FAILURE, NULL, 0);
-            } else {
-                RIL_onRequestComplete(t, RIL_E_SUCCESS,
-                    p_response->p_intermediates->line, sizeof(char *));
-            }
-            at_response_free(p_response);
-            break;
-
-        case RIL_REQUEST_SET_NETWORK_SELECTION_AUTOMATIC:
-            at_send_command("AT+COPS=0", NULL);
-            break;
-
-        case RIL_REQUEST_DATA_CALL_LIST:
-            requestDataCallList(data, datalen, t);
-            break;
-
-        case RIL_REQUEST_QUERY_NETWORK_SELECTION_MODE:
-            requestQueryNetworkSelectionMode(data, datalen, t);
-            break;
-
-        case RIL_REQUEST_OEM_HOOK_RAW:
-            // echo back data
-            RIL_onRequestComplete(t, RIL_E_SUCCESS, data, datalen);
-            break;
-
-
-        case RIL_REQUEST_OEM_HOOK_STRINGS: {
-            int i;
-            const char ** cur;
-
-            LOGD("got OEM_HOOK_STRINGS: 0x%8p %lu", data, (long)datalen);
-
-
-            for (i = (datalen / sizeof (char *)), cur = (const char **)data ;
-                    i > 0 ; cur++, i --) {
-                LOGD("> '%s'", *cur);
-            }
-
-            // echo back strings
-            RIL_onRequestComplete(t, RIL_E_SUCCESS, data, datalen);
-            break;
-        }
-
-        case RIL_REQUEST_WRITE_SMS_TO_SIM:
-            requestWriteSmsToSim(data, datalen, t);
-            break;
-
-        case RIL_REQUEST_DELETE_SMS_ON_SIM: {
-            char * cmd;
-            p_response = NULL;
-            asprintf(&cmd, "AT+CMGD=%d", ((int *)data)[0]);
-            err = at_send_command(cmd, &p_response);
-            free(cmd);
-            if (err < 0 || p_response->success == 0) {
-                RIL_onRequestComplete(t, RIL_E_GENERIC_FAILURE, NULL, 0);
-            } else {
-                RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
-            }
-            at_response_free(p_response);
-            break;
-        }
-
-        case RIL_REQUEST_ENTER_SIM_PIN:
-        case RIL_REQUEST_ENTER_SIM_PUK:
-        case RIL_REQUEST_ENTER_SIM_PIN2:
-        case RIL_REQUEST_ENTER_SIM_PUK2:
-        case RIL_REQUEST_CHANGE_SIM_PIN:
-        case RIL_REQUEST_CHANGE_SIM_PIN2:
-            requestEnterSimPin(data, datalen, t);
-            break;
+        ......
 
         default:
             RIL_onRequestComplete(t, RIL_E_REQUEST_NOT_SUPPORTED, NULL, 0);
@@ -1180,32 +1280,198 @@ onRequest (int request, void *data, size_t datalen, RIL_Token t)
     }
 }
 }}}
-以RIL_REQUEST_DIAL处理分析
+libril根据发送过来的请求ID,调用对应的处理函数。
+
+此处以RIL_REQUEST_GET_CURRENT_CALLS为例分析,这里终于看到了发到modem的AT指令了。
+
+`reference-ril.c`
 {{{class="brush: c"
-static void requestDial(void *data, size_t datalen, RIL_Token t)
+static void requestGetCurrentCalls(void *data, size_t datalen, RIL_Token t)
 {
-    RIL_Dial *p_dial;
-    char *cmd;
-    const char *clir;
-    int ret;
+    int err;
+    ATResponse *p_response;
+    ......
+    //发送AT指令AT+CLCC,
+    err = at_send_command_multiline ("AT+CLCC", "+CLCC:", &p_response);
 
-    p_dial = (RIL_Dial *)data;
-
-    switch (p_dial->clir) {
-        case 1: clir = "I"; break;  /*invocation*/
-        case 2: clir = "i"; break;  /*suppression*/
-        default:
-        case 0: clir = ""; break;   /*subscription default*/
+    //直接处理AT命令的返回结果
+    if (err != 0 || p_response->success == 0) {
+        RIL_onRequestComplete(t, RIL_E_GENERIC_FAILURE, NULL, 0);
+        return;
     }
 
-    asprintf(&cmd, "ATD%s%s;", p_dial->address, clir);
+    /* count the calls */
+    for (countCalls = 0, p_cur = p_response->p_intermediates
+            ; p_cur != NULL
+            ; p_cur = p_cur->p_next
+    ) {
+        countCalls++;
+    }
 
-    ret = at_send_command(cmd, NULL);
+    ......
 
-    free(cmd);
+    //调用该函数将处理结果反馈给RILJ
+    RIL_onRequestComplete(t, RIL_E_SUCCESS, pp_calls,
+            countValidCalls * sizeof (RIL_Call *));
 
-    /* success or failure is ignored by the upper layer here.
-       it will call GET_CURRENT_CALLS and determine success that way */
-    RIL_onRequestComplete(t, RIL_E_SUCCESS, NULL, 0);
+    at_response_free(p_response);
+
+#ifdef POLL_CALL_STATE
+    if (countValidCalls) {  // We don't seem to get a "NO CARRIER" message from
+                            // smd, so we're forced to poll until the call ends.
+#else
+    if (needRepoll) {
+#endif
+        RIL_requestTimedCallback (sendCallStateChanged, NULL, &TIMEVAL_CALLSTATEPOLL);
+    }
+
+    return;
+error:
+    RIL_onRequestComplete(t, RIL_E_GENERIC_FAILURE, NULL, 0);
+    at_response_free(p_response);
 }
 }}}
+函数调用了at_send_command_multiline(）来将AT命令发送到modem,参数p_responese用来保存返回的数据结果。接着往下跟:
+
+`atchannel.c`
+{{{class="brush: c"
+int at_send_command_multiline (const char *command,
+                                const char *responsePrefix,
+                                 ATResponse **pp_outResponse)
+{
+    int err;
+
+    err = at_send_command_full (command, MULTILINE, responsePrefix,
+                                    NULL, 0, pp_outResponse);
+
+    return err;
+}
+
+static int at_send_command_full (const char *command, ATCommandType type,
+                    const char *responsePrefix, const char *smspdu,
+                    long long timeoutMsec, ATResponse **pp_outResponse)
+{
+    /**
+    * command: 表示发送的AT指令
+    * 
+    * type:用来标示期望的命令返回格式类型
+    * typedef enum {
+    *     NO_RESULT,   /* no intermediate response expected */
+    *     NUMERIC,     /* a single intermediate response starting with a 0-9 */
+    *     SINGLELINE,  /* a single intermediate response starting with a prefix */
+    *     MULTILINE    /* multiple line intermediate response
+    *                     starting with a prefix */
+    * } ATCommandType;
+    * 
+    * responsePrefix: 反馈结果的前缀
+    * timeoutMsec:
+      超时时间，如果为0,表示无限等待modem反馈，如果不为0,则在timeoutMsec时间无响应后返回。
+    * pp_outResponse:   用来保存反馈的结果
+    */
+
+    int err;
+
+    if (0 != pthread_equal(s_tid_reader, pthread_self())) {
+        /* cannot be called from reader thread */
+        return AT_ERROR_INVALID_THREAD;
+    }
+
+    pthread_mutex_lock(&s_commandmutex);
+    //发送命令
+    err = at_send_command_full_nolock(command, type,
+                    responsePrefix, smspdu,
+                    timeoutMsec, pp_outResponse);
+
+    pthread_mutex_unlock(&s_commandmutex);
+
+    if (err == AT_ERROR_TIMEOUT && s_onTimeout != NULL) {
+        s_onTimeout();
+    }
+
+    return err;
+}
+
+static int at_send_command_full_nolock (const char *command, ATCommandType type,
+                    const char *responsePrefix, const char *smspdu,
+                    long long timeoutMsec, ATResponse **pp_outResponse)
+{
+    int err = 0;
+#ifndef USE_NP
+    struct timespec ts;
+#endif /*USE_NP*/
+
+    //sp_response是一个全局变量，发送命令给modem时创建，从modem获取命令时置为null,如果发送命令时不为NULL,表示前一条命令未处理完毕。
+    if(sp_response != NULL) {
+        err = AT_ERROR_COMMAND_PENDING;
+        goto error;
+    }
+
+    //将命令通过串口设备写入modem
+    err = writeline (command);
+
+    if (err < 0) {
+        goto error;
+    }
+
+    s_type = type;
+    s_responsePrefix = responsePrefix;
+    s_smsPDU = smspdu;
+    sp_response = at_response_new();
+
+#ifndef USE_NP
+    if (timeoutMsec != 0) {
+        setTimespecRelative(&ts, timeoutMsec);
+    }
+#endif /*USE_NP*/
+
+    //1
+    等待处理结果，modem处理完该请求后，finalResponse就包含命令的处理结果
+    while (sp_response->finalResponse == NULL && s_readerClosed == 0) {
+        if (timeoutMsec != 0) {
+#ifdef USE_NP
+            err = pthread_cond_timeout_np(&s_commandcond, &s_commandmutex, timeoutMsec);
+#else
+            err = pthread_cond_timedwait(&s_commandcond, &s_commandmutex, &ts);
+#endif /*USE_NP*/
+        } else {
+            //等待s_tid_reader线程发送s_commandcond,表示请求已经处理完
+            err = pthread_cond_wait(&s_commandcond, &s_commandmutex);
+        }
+
+        if (err == ETIMEDOUT) {
+            err = AT_ERROR_TIMEOUT;
+            goto error;
+        }
+    }
+
+    //将AT反馈结果返回
+    if (pp_outResponse == NULL) {
+        at_response_free(sp_response);
+    } else {
+        /* line reader stores intermediate responses in reverse order */
+        reverseIntermediates(sp_response);
+        *pp_outResponse = sp_response;
+    }
+
+    sp_response = NULL;
+
+    if(s_readerClosed > 0) {
+        err = AT_ERROR_CHANNEL_CLOSED;
+        goto error;
+    }
+
+    err = 0;
+error:
+    clearPendingCommand();
+
+    return err;
+}
+}}}
+在使用writeLine(）将AT命令发送到串口后，函数便开始等待信号s_commandcond来获取命令的处理结果。而该信号又是在何时何地发送的呢？
+
+大家是否记得前面讲到的rild调用libril的RIL_Init(）函数，创建的s_tid_reader线程，该线程用于读取modem发送过来的数据，自然也包括命令的反馈结果啦。如果记不太清楚了，请点击
+<a href="#tag_s_tid_reader">这里</a>。
+
+处理完发过来的请求后，通过RIL_onRequestComplete()函数将命令的处理结果发送给RILJ,该函数的分析请看这里<a href="#tag_onrequestcomplete">【这里】</a>
+
+分析完毕。

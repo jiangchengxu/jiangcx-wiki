@@ -51,8 +51,6 @@ Call.java中提供了多个方法获取其中的连接：
 //判断是否包含连接C
 public boolean hasConnection(Connection c){......}
 //判断Call是否包含连接
-
-身体【M＃【）
 public boolean hasConnections(）{......}
 //获取最早建立的连接
 public Connection getEarliestConnection(）{......}

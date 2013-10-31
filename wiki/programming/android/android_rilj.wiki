@@ -720,4 +720,4 @@ RILReceiver用于实时监控rild socket,当从rild socket接收到数据后，�
 
 由于处理的是非主动上报的信息，所以处理时需要根据rild反馈信息中的请求序列号，从请求列表中找到对应的RILRequest,RILRequest中包含一个Message对象，Message对象中指定了这个Message的target Handler,所以processSolicited(）只要将请求的反馈信息封装到这个Message对象的obj中，然后调用sendToTarget(）即可。
 
-RILJ的分析已经结束了，趁热打铁，我们接着分析RILC的实现方式，请转到[[android_rilc|Android RILC实现]]
+RILJ的分析已经结束了，趁热打铁，我们接着分析RILC的实现方式，请转到[[android_rild|Android RILD实现]]

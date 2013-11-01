@@ -12,13 +12,16 @@
         <link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shThemeMidnight.css"/>
    </head>
     <body>
-        <center style="font-family: 'Microsoft Yahei', sans-serif; font-size: 1.80em;
-            font-weight: normal; color: #FF6600">知识格子</center><br />
-        <center>--------老姜的wiki世界</center>
+        <div id="header">
+            <center style="font-family: 'Microsoft Yahei', sans-serif;
+                font-size: 1.80em; font-weight: normal; color:
+                #FF6600">知识格子</center><br />
+            <center>--------老姜的wiki世界</center>
+        </div>
 
-
+        <div id="main">
         %content%
-
+        </div>
 
         <center  style="font-family: 'Microsoft Yahei'; font-size: small; font-weight: normal; color: #009933">
             jiangcx&nbsp;&copy;&nbsp;2013-2015&nbsp;<br>
@@ -110,5 +113,7 @@
         SyntaxHighlighter.defaults['collapse'] = true;
 	SyntaxHighlighter.all();
 	</script>
+        <script src="%root_path%../public/jquery-1.4.2.min.js" type="text/javascript"></script>
+        <script src="%root_path%../public/vimwiki.js" type="text/javascript"></script>
     </body>
 </html>

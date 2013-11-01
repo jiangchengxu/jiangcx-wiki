@@ -14,5 +14,6 @@
 
 
 = 日记 =
+[[diary/index|日记]]
 [[diary/Linux-10000hours|Linux 10000小时]]
 %title 主页

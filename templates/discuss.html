@@ -4,15 +4,24 @@
         <title>%title%</title>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
         <link rel="Stylesheet" type="text/css" href="%root_path%../public/style.css" />
-    </head>
+
+        <!-- SyntaxHighlighter -->
+        <script src="%root_path%../public/SyntaxHighlighter/scripts/shCore.js"></script>
+        <script src="%root_path%../public/SyntaxHighlighter/scripts/shAutoloader.js"></script>
+        <link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shCore.css"/>
+        <link type="text/css" rel="stylesheet" href="%root_path%../public/SyntaxHighlighter/styles/shThemeMidnight.css"/>
+   </head>
     <body>
-        <center style="font-family: 'Microsoft Yahei', sans-serif; font-size: 1.80em;
-            font-weight: normal; color: #FF6600">知识格子</center><br />
-        <center>--------老姜的wiki世界</center>
+        <div id="header">
+            <center style="font-family: 'Microsoft Yahei', sans-serif;
+                font-size: 1.80em; font-weight: normal; color:
+                #FF6600">知识格子</center><br />
+            <center>--------老姜的wiki世界</center>
+        </div>
 
-
+        <div id="main">
         %content%
-
+        </div>
 
         <!-- For Disqus -->
         <div id="disqus_thread"></div>
@@ -37,5 +46,7 @@
         <!-- For 量子统计 -->
         <script type="text/javascript" src="http://js.tongji.linezing.com/2785323/tongji.js"></script>
 
+        <script src="%root_path%../public/jquery-1.4.2.min.js" type="text/javascript"></script>
+        <script src="%root_path%../public/vimwiki.js" type="text/javascript"></script>
     </body>
 </html>

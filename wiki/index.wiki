@@ -2,8 +2,7 @@
 
 = 工具集 =
 
-<red>[[tools/vimwiki|Vimwiki]]</red> [[tools/vim|Vim Tips]] [[tools/vimim|vimim]]
-[[tools/smbclient|smbclient]] [[tools/scp|scp]] [[tools/command-t|Command-T]]
+[[tools/smbclient|smbclient]] [[tools/vim|vim tips]] [[tools/scp|scp]] [[tools/command-t|Command-T]]
 
 
 ----

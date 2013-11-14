@@ -1,0 +1,127 @@
+%template code_3
+%toc
+
+  = UNIX 环境高级编程 笔记 =
+
+== 第4章 ==
+
+== stat,fstat,lstat函数 ==
+用于获取某一文件的信息结构，返回参数struct stat<sys/stat.h>结构中，包含了该文件的有关信息
+{{{
+<sys/stat.h>
+struct stat{
+    mode_t  st_mode;
+    ino_t   st_ino;
+    dev_t   st_dev;
+    dev_t   st_rdev;
+    nlink_t st_nlink;
+    uid_t   st_uid;         //文件所有者的用户ID
+    gid_t   st_gid;         //文件所有者的组ID
+    off_t   st_size;
+    time_t  st_atime;
+    time_t  st_mtime;
+    time_t  st_ctime;
+}
+}}}
+
+=== 1. st_mode ===
+该字段包含了文件的类型，设置用户ID(set-user-ID）,设置组ID(set-group-ID), 访问权限。
+
+==== 获取文件类型的宏定义<sys/stat.h> ====
+- S_ISREG(st_mode)      //常规文件`-`
+- S_ISDIR(st_mode)      //目录文件`d`
+- S_ISCHR(st_mode)      //字符设备文件`c`
+- S_ISBLK(st_mode)      //块设备文件`b`
+- S_ISFIFO(st_mode)     //命名管道`p`
+- S_ISSOCK(st_mode)     //套接字`s`
+- S_ISLNK(st_mode)      //符号连接文件`l`
+
+==== 测试是否设置了(set-user-id)位和(set-group-id)位 ====
+- S_ISUID      //是否设置了set-user-ID位
+- S_ISGID      //是否设置了set-group-ID位
+*设置了set-user-id或set-group-id位的文件，在执行时，会以文件所有者的用户ID(st_uid)或文件所有者的组ID(st_gid)身份来运行，而不是运行该文件的实际用户ID或实际组ID*
+
+==== 获取文件访问权限的宏定义<sys/stat.h> ====
+- S_IRUSR|S_IWUSR|S_IXUSR     //所有者读，写，执行权限
+- S_IRGRP|S_IWGRP|S_IXGRP     //组读，写，执行权限
+- S_IROTH|S_IWOTH|S_IXOTH     //其他读，写，执行权限
+*目录的读权限允许进程获得目录下所有文件名称列表，执行权限允许该目录作为访问的文件路径的一部分时，我们可以访问到文件（可以在该目录下搜索到相应的文件）*
+
+==== 进程的用户ID,组ID ====
+每一个进程关联6个ID或更多
+- 实际用户ID,实际组ID               //标示执行进程的用户ID和组ID
+- 有效用户ID,有效组ID及附加组ID     //用于决定文件访问权限
+- 保存的set-user-id和set-group-id   //保存有效用户ID和有效组ID的副本
+进程创建的新文件的用户ID设置为进程的有效用户ID,组ID既可以设置为进程的有效组ID,也可以设置为所在目录的组ID
+
+进程每次打开，创建，删除一个文件时，内核就进行文件访问权限测试，下图展示测试的执行步骤：
+{{../../public/images/access-test.png}}
+
+==== access函数 ====
+open函数打开一个文件时，内核使用进程的`有效用户ID`和`有效组ID`为基础进行访问权限测试。
+access函数始终使用文件`实际用户ID`和`实际组ID`为基础进行访问权限测试。
+- R_OK      //测试读权限
+- W_OK      //测试写权限
+- X_OK      //测试执行权限
+- F_OK      //测试文件是否存在
+
+==== chmod和fchmod函数 ====
+用于更改文件和目录的访问权限
+
+| access mode                     | sign     | eight |
+|---------------------------------|----------|-------|
+| S_ISUID                         | s with u | 4000  |
+| S_ISGID                         | s with g | 2000  |
+| S_ISVTX                         | t        | 1000  |
+| S_IRWXU;S_IRUSR;S_IWUSR;S_IXUSR | rwx      | 421   |
+| S_IRWXG;S_IRGRP;S_IWGRP;S_IXGRP | rwx      | 421   |
+| S_IRWXO;S_IROTH;S_IWOTH,S_IXOTH | rwx      | 421   |
+*只有文件的所有者或超级用户可以更改文件的权限位*
+
+==== umask函数 ====
+当进程创建一个文件或目录时，一定会使用文件模式创建屏蔽字(file-mode-creation-mask),该屏蔽字指定了`不`希望文件或目录拥有的权限。
+
+umask函数用于设定进程使用的文件模式创建屏蔽字。更改进程的屏蔽字并不会影响父进程的屏蔽字
+
+==== chown,fchown,lchown函数 ====
+更改文件的用户ID和组ID
+
+=== 2. st_size ===
+表示以字节为单位的文件长度，此字段只对普通文件，目录文件和符号链接有意义。
+普通文件的长度可以为0-任意数字
+目录文件的长度通常为一个数的倍数
+符号连接的长度是文件名中的实际字节数（不包括null结束符）
+
+=== 3.软连接，硬连接 ===
+==== 硬连接 ====
+link(）             //创建硬连接
+unlink(）           //删除硬连接
+remove(）           //删除文件或目录
+rename(）           //重命令文件
+
+==== 软连接 ====
+symlink(）          //创建软连接
+readlink(）         //读取软连接内容
+
+=== 4. st_atime, st_ctime, st_mtime ===
+st_atime            //文件数据的最后访问时间
+st_mtime            //文件数据的最后修改时间
+st_ctime            //文件状态信息（inode) 的最后修改时间
+
+==== utime函数 ====
+更改文件的最后访问时间（st_atime) 或 文件的最后修改时间（st_mtime)。 
+函数不能更改文件状态信息的最后修改时间（st_ctime)，该字段会被自动更新。
+
+=== 5. 目录操作 ===
+mkdir(）            //创建目录
+rmdir(）            //删除一个空目录（只包含.和..的目录）
+opendir(）          //打开目录
+readdir(）          //读取目录
+closedir(）         //关闭目录
+chdir(）            //更改当前工作目录
+fchdir(）           //更改当前工作目录
+getcwd(）           //获取当前工作目录完整的绝对路径名
+
+
+
+

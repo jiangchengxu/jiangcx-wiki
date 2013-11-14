@@ -1,0 +1,52 @@
+%template code_3
+%toc
+
+  = UNIX 环境高级编程 笔记 =
+
+= 第4章 =
+
+== stat,fstat,lstat函数 ==
+用于获取某一文件的信息结构，返回参数struct stat<sys/stat.h>结构中，包含了该文件的有关信息
+{{{
+<sys/stat.h>
+struct stat{
+    mode_t  st_mode;
+    ino_t   st_ino;
+    dev_t   st_dev;
+    dev_t   st_rdev;
+    nlink_t st_nlink;
+    uid_t   st_uid;         //文件所有者的用户ID
+    gid_t   st_gid;         //文件所有者的组ID
+    off_t   st_size;
+    time_t  st_atime;
+    time_t  st_mtime;
+    time_t  st_ctime;
+}
+}}}
+
+=== 1. st_mode ===
+该字段包含了文件的类型，设置用户ID(set-user-ID）,设置组ID(set-group-ID), 访问权限。
+
+==== 获取文件类型的宏定义<sys/stat.h> ====
+- S_ISREG(st_mode)      //常规文件
+- S_ISDIR(st_mode)      //目录文件
+- S_ISCHR(st_mode)      //字符设备文件
+- S_ISBLK(st_mode)      //块设备文件
+- S_ISFIFO(st_mode)     //命名管道
+- S_ISSOCK(st_mode)     //套接字
+- S_ISLNK(st_mode)      //符号连接文件
+
+==== 测试是否设置了(set-user-id)位和(set-group-id)位 ====
+- S_ISUID(st_mode)      //是否设置了set-user-ID位
+- S_ISGID(st_mode)      //是否设置了set-group-ID位
+*设置了set-user-id或set-group-id位的文件，在执行时，会以文件所有者的用户ID(st_uid)或文件所有者的组ID(st_gid)身份来运行，而不是运行该文件的实际用户ID或实际组ID*
+
+==== 获取文件访问权限的宏定义<sys/stat.h> ====
+- S_IRUSR(st_mode)|S_IWUSR(st_mode)|S_IXUSR(st_mode)     //所有者读，写，执行权限
+- S_IRGRP(st_mode)|S_IWGRP(st_mode)|S_IXGRP(st_mode)     //组读，写，执行权限
+- S_IROTH(st_mode)|S_IWOTH(st_mode)|S_IXOTH(st_mode)     //其他读，写，执行权限
+*目录的读权限允许进程获得目录下所有文件名称列表，执行权限允许该目录作为访问的文件路径的一部分时，我们可以访问到文件（可以在该目录下搜索到相应的文件）*
+
+
+进程每次打开，创建，删除一个文件时，内核就进行文件访问权限测试，下图展示测试的执行步骤：
+{{../../public/images/access-test.png}}

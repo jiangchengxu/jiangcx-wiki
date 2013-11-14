@@ -1,0 +1,185 @@
+%template code_3
+%toc
+
+  = UNIX 环境高级编程 笔记 =
+
+== 第5章 标准IO库==
+
+=== 流 ===
+与unix系统调用IO函数针对文件描述符不同，标准IO库的所有操作都是针对`流`进行的。
+
+==== 流的定向 ====
+标准IO库可用于单字节和多字节（宽字节）字符集。
+`流的定向`决定了流读写字符是单字节还是多字节。一个流最先被创建时，并没有定向。若在未定向的流上使用一个多字节IO函数，则将流的定向设置为`宽定向`。
+若在未定向的流上使用一个单字节IO函数，则流的定向设置为`字节定向`。
+
+freopen(）清除一个流的定向。
+fwide(）设置一个流的定向，该函数不会更改已定向流的定向。
+
+==== 标准输入，标准输出，标准出错 ====
+与文件描述符相同，一个进程也预定了三个流，这三个流可以自动的被进程使用,并且引用的文件与STDIN_FILENO, STDOUT_FILENO, STDERR_NO相同，
+这三个标准IO流通过预定义的三个文件指针引用：stdin, stdout, stderr,这三个文件指针定义在<stdio.h>
+
+==== 流的缓冲 ====
+标准IO库使用缓冲机制减少read,write读写磁盘的次数。
+标准IO库提供三种类型的缓冲：
+- 全缓冲:       在填满标准IO缓冲区后才进行实际IO操作。
+- 行缓冲：      当输入和输出中遇到换行符时，执行实际的IO操作。
+- 不带缓冲：    不对字符进行缓冲存储。
+
+默认情况下：
+* 标准出错是不带缓冲的
+* 如果是涉及终端设备的其他流，则他们是行缓冲的，否则是全缓冲的。
+
+===== 更改默认缓冲区和缓冲类型 =====
+- setbuf(FILE *fp, char *buf） //用于打开或关闭缓冲区，buf的大小必须是BUFSIZ,buf为NULL时关闭缓冲区
+- setvbuf(FILE *fp, char *buf, int mode, size_t size）  //可以更改缓冲类型mode：_IOFBF,_IOLBF,_IONBF
+<red>必须在流打开后，其他任何IO操作之前调用。</red>
+
+===== 冲洗一个流的缓冲区 =====
+fflush(FILE *fp） //使该流缓冲区数据都传送至内核，当fp为NULL,所有输出流被冲洗。
+
+==== 打开流 ====
+- FILE *fopen(const char *restrict pathname, const char *restrict type） //打开一个指定的文件
+- FILE *freopen(const char *restrict pathname, const char *restrict type, FILE *restrict fp) //在一个指定的流上打开一个文件，如果该流已经打开，则先关闭该流。若流已经定向，则清除流定向。一般用于将一个制定的文件打开为一个预定义的流：stdin,stdout,stderr(重定向）。
+- FILE *fdopen(int filedes, const char * type) //使一个文件描述符与一个标准IO流关联
+type指定对该IO流的读写方式：
+
+| type       | description                                           | open flag                     |
+|------------|-------------------------------------------------------|-------------------------------|
+| r,rb       | open for reading                                      | O_RDONLY                      |
+| w,wb       | create and write and truncate 0                       | O_WRONLY & O_CREAT & O_TRUNC  |
+| a,ab       | create and write and append                           | O_WRONLY & O_CREAT & O_APPEND |
+| r+,rb+,r+b | open for reading and writing                          | O_RDWR                        |
+| w+,wb+,w+b | create reading and writing and truncate               | O_RDWR & O_CREAT & O_TRUNC    |
+| a+,ab+,a+b | create or open for reading and writing at end of file | O_RDWR & O_CREAT & O_APPEND   |
+
+使用读写方式（＋）打开文件时：
+- 如果中间没有fflush,fseek,fsetpos和rewind,则在输出的后面`不能`直接跟输入
+- 如果中间没有fseek,fsetops,rewind,或者一个输入操作没有到达文件尾端，则在输入操作之后`不能`直接跟输出
+
+==== 关闭流 ====
+fclose(FILE *fp) //在关闭流之前，会冲洗缓冲区的输出数据，丢弃缓冲区的任何输入数据，自动释放`默认缓冲区`
+*进程正常终止时（直接调用exit或从main函数返回），所有带未写缓冲数据的标准IO流都会被冲洗，所有打开的标准IO流都会关闭*
+
+==== 读写流 ====
+===== 非格式化IO: =====
+(1) 每次一个字符的IO: 每次读写一个字符，如果流是带缓冲的，则标准IO函数会处理所有缓冲
+====== 1 输入函数： ======
+<I>读取字符</I> 
+{{{
+int getc(FILE *fp)
+
+int fgetc(FILE* fp)
+
+int getchar(void)   
+//从标准输入读取一个字符，等于getc(stdin)
+}}}
+函数成功则返回下一个字符，若已到达文件结尾或出错则都返回EOF
+
+<i>错误判断函数</i>
+{{{
+int ferror(FILE *fp)    
+//判读读取出错，条件为真返回非0值，否则返回0
+
+int feof(FILE *fp)      
+//判断读取到达文件末尾，条件为真返回非0值，否则返回0
+
+void clearerr(FILE *fp) 
+//清除这出错标志和文件结束标志
+}}}
+
+<i>将字符重新压入输入流</i>
+{{{
+int ungetc(int c, FILE *fp) 
+//将一个字符重新压入输入流，压送回流的字符可以再次从流中读取，但读出字符的顺序与压送回的顺序`相反`，并且`不能`回送EOF,成功返回c,否则返回EOF
+}}}
+<red>压送回的字符只是重写回标准IO库的流缓冲区中，并不是写回到文件中或设备上。</red>
+
+====== 2 输出函数 ======
+{{{
+int putc(int c, FILE *fp)
+int fputc(int c, FILE *fp)
+int putchar(int c)  //输出到标准输出，等效与putc(c, stdout)
+}}}
+与输入函数对应，成功返回c,出错返回EOF
+    
+(2) 每次读写一行的IO: 每次读写一行数据，以换行符终止
+====== 1 输入函数 ======
+{{{
+char *fgets(char *restrict buf, int n, FILE *restrict fp)
+//一次读取到下一个换行符为止（包含换行符），但是不超过n-1个字符，读取的字符放入缓冲区，并以null结尾。若该行长度大于n-1,则只返回一个不完整的行，下次调用会继续读该行
+char *gets(char *buf)
+//从标准输入读取一行。并不包含换行符
+}}}
+成功返回buf,若到达文件末尾或出错则返回NULL
+
+====== 2 输出函数 ======
+{{{
+int fputs(const char *restrict str, FILE *restrict fp)
+//将一个以null符终止的字符串写到指定的流，尾端的终止符不写出。
+int puts(const char * str)
+//将一个以null符终止的字符串写到指定的流，尾端的终止符不写出，最后将一个换行符写出。
+}}}
+成功则返回非负值，出错返回EOF
+
+(3) 二进制IO:   每次读写一定数量的对象，每个对象具有指定的长度。
+{{{
+size_t fread(void *restrict ptr, size_t size, size_t nobj, FILE *restrict fp)
+size_t fwrite(const void *restrict ptr, size_t size, size_t nobj, FILE *restrict fp)
+
+size: 指定读或写的对象大小
+nobj:指定读或写的对象数
+}}}
+返回读或写的对象数(nobj)，对于读，如果出错或到达文件尾端，则此数字可以少于nobj,此时可以用ferror和feof判断属于哪种情况。对于写，如果少于所要求的nobj,则出错
+
+====== 定位流 ======
+{{{
+long ftell(FILE *fp)
+int fseek(FILE *fp, long offset, int whence)
+void rewind(FILE *fp)
+
+off_t ftello(FILE *fp)
+int fseeko(FILE *fp, off_t offset, int whence)
+
+fgetops(FILE *restrict fp, fpos_t *restrict pos)
+fsetpos(FILE *fp, const fpos_t pos)
+}}}
+
+===== 格式化IO =====
+====== 1 格式化输出 ======
+{{{
+int printf(const char *restrict format, ...)
+//将格式化数据输出到标准输出
+
+int fprintf(FILE *restrict fp, const char *restrict format, ...)
+//将格式化数据写到指定流
+
+int sprintf(char *restrict buf, const char *restrict format, ...)
+int snprintf(char *restrict buf, size_t n, const char *restrict format, ...)
+//将格式化数据写到制定buffer,自动在buffer后添加一个null字节，n用于指定buffer的长度，超过n的字符都会丢弃
+}}}
+出错返回负值，成功返回输出字符数
+====== 2 格式化输入 ======
+{{{
+int scanf(const char *restrict format, ...)
+int fscanf(FILE *restrict fp, const char *restrict format, ...)
+int sscanf(const char *restrict buf, const char *restrict format, ...)
+}}}
+返回指定的输入项数，若出错或到达文件结尾则返回EOF
+
+==== 获取文件描述符 ====
+{{{
+int fileno(FILE *fp)
+//返回该流相关的文件描述符
+}}}
+
+==== 临时文件 ====
+{{{
+char * tmpnam(char *ptr)
+//返回唯一路径名的指针
+//若ptr为NULL,则产生的文件名
+
+FILE *tmpfile(void)
+//若成功则返回文件指针，失败则返回NULL
+}}}

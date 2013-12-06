@@ -36,25 +36,29 @@ struct stat{
 - S_ISSOCK(st_mode)     //套接字`s`
 - S_ISLNK(st_mode)      //符号连接文件`l`
 
-==== 测试是否设置了(set-user-id)位和(set-group-id)位 ====
-- S_ISUID      //是否设置了set-user-ID位
-- S_ISGID      //是否设置了set-group-ID位
-*设置了set-user-id或set-group-id位的文件，在执行时，会以文件所有者的用户ID(st_uid)或文件所有者的组ID(st_gid)身份来运行，而不是运行该文件的实际用户ID或实际组ID*
-
 ==== 获取文件访问权限的宏定义<sys/stat.h> ====
 - S_IRUSR|S_IWUSR|S_IXUSR     //所有者读，写，执行权限
 - S_IRGRP|S_IWGRP|S_IXGRP     //组读，写，执行权限
 - S_IROTH|S_IWOTH|S_IXOTH     //其他读，写，执行权限
 *目录的读权限允许进程获得目录下所有文件名称列表，执行权限允许该目录作为访问的文件路径的一部分时，我们可以访问到文件（可以在该目录下搜索到相应的文件）*
 
+==== 测试是否设置了(set-user-id)位和(set-group-id)位 ====
+- S_ISUID      //是否设置了set-user-ID位
+- S_ISGID      //是否设置了set-group-ID位
+<p style="background-color:orangered">设置了set-user-id或set-group-id位的`可执行文件`，在执行时，会以文件所有者的用户ID(st_uid)或文件所有者的组ID(st_gid)身份来运行，而不是运行该文件的实际用户ID或实际组ID</p>
+<red>* set-user-id和set-ground-id位只对可执行文件有意义</red>
+
 ==== 进程的用户ID,组ID ====
 每一个进程关联6个ID或更多
-- 实际用户ID,实际组ID               //标示执行进程的用户ID和组ID
-- 有效用户ID,有效组ID及附加组ID     //用于决定文件访问权限
-- 保存的set-user-id和set-group-id   //保存有效用户ID和有效组ID的副本
+- 实际用户ID,实际组ID                     //标识执行进程的用户ID和组ID,一般情况下，实际用户ID和实际组ID在用户登陆的时候设定，并一直保持不变
+- 有效用户ID,有效组ID及附加组ID           //用来判断一个进程对某个文件是否有权限时，需要验证有效用户ID而不是实际用户ID
+- saved set-user-id和saved set-group-id   //保存有效用户ID和有效组ID的副本，`与文件的set-user-id位不一样`
 进程创建的新文件的用户ID设置为进程的有效用户ID,组ID既可以设置为进程的有效组ID,也可以设置为所在目录的组ID
 
-进程每次打开，创建，删除一个文件时，内核就进行文件访问权限测试，下图展示测试的执行步骤：
+<red>这些ID是与进程相关的</red>
+
+进程每次打开，创建，删除一个文件时，内核就进行文件访问权限测试，将`进程`的有效用户ID(组ID）与要操作的文件所有者ID(组ID)进行对比，然后测试对应ID的文件访问权限。
+下图展示测试的执行步骤：
 {{../../public/images/access-test.png}}
 
 ==== access函数 ====

@@ -1,0 +1,3 @@
+
+whatis command 显示command命令的所有man page
+

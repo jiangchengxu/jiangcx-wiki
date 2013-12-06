@@ -2,7 +2,8 @@
 
 = 工具集 =
 
-[[tools/smbclient|smbclient]] [[tools/vim|vim tips]] [[tools/scp|scp]] [[tools/command-t|Command-T]]
+[[tools/smbclient|smbclient]] [[tools/vim|vim tips]]
+[[tools/vim-quickref|vim quickreference]] [[tools/scp|scp]] [[tools/command-t|Command-T]]
 
 
 ----
@@ -13,6 +14,5 @@
 
 
 = 日记 =
-[[diary/index|日记]]
-[[diary/Linux-10000hours|Linux 10000小时]]
+[[diary/diary|日记]]
 %title 主页

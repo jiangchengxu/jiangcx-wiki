@@ -25,7 +25,7 @@ struct stat{
 }}}
 
 === 1. st_mode ===
-该字段包含了文件的类型，设置用户ID(set-user-ID）,设置组ID(set-group-ID), 访问权限。
+该字段包含了`文件类型`，`设置用户ID(set-user-ID）`,`设置组ID(set-group-ID)`, `访问权限`。
 
 ==== 获取文件类型的宏定义<sys/stat.h> ====
 - S_ISREG(st_mode)      //常规文件`-`
@@ -42,20 +42,28 @@ struct stat{
 - S_IROTH|S_IWOTH|S_IXOTH     //其他读，写，执行权限
 *目录的读权限允许进程获得目录下所有文件名称列表，执行权限允许该目录作为访问的文件路径的一部分时，我们可以访问到文件（可以在该目录下搜索到相应的文件）*
 
-==== 测试是否设置了(set-user-id)位和(set-group-id)位 ====
-- S_ISUID      //是否设置了set-user-ID位
-- S_ISGID      //是否设置了set-group-ID位
-<p style="background-color:orangered">设置了set-user-id或set-group-id位的`可执行文件`，在执行时，会以文件所有者的用户ID(st_uid)或文件所有者的组ID(st_gid)身份来运行，而不是运行该文件的实际用户ID或实际组ID</p>
-<red>* set-user-id和set-ground-id位只对可执行文件有意义</red>
+==== 文件的所有者id和组所有者id ====
+每个文件都有一个文件所有者id(st_uid)和组所有者id(st_gid)
+进程创建的新文件的`用户ID`设置为进程的`有效用户ID`,组ID既可以设置为`进程的有效组ID`,也可以设置为所在`目录的组ID`
 
 ==== 进程的用户ID,组ID ====
 每一个进程关联6个ID或更多
 - 实际用户ID,实际组ID                     //标识执行进程的用户ID和组ID,一般情况下，实际用户ID和实际组ID在用户登陆的时候设定，并一直保持不变
 - 有效用户ID,有效组ID及附加组ID           //用来判断一个进程对某个文件是否有权限时，需要验证有效用户ID而不是实际用户ID
 - saved set-user-id和saved set-group-id   //保存有效用户ID和有效组ID的副本，`与文件的set-user-id位不一样`
-进程创建的新文件的用户ID设置为进程的有效用户ID,组ID既可以设置为进程的有效组ID,也可以设置为所在目录的组ID
 
 <red>这些ID是与进程相关的</red>
+
+{{{
+    系统启动后,用户通过login登陆,会产生一个用户进程,该进程的用户ID与登陆名一致,当用户执行程序时,系统采用fork+exec方式创建子进程,子进程会继承父进程的uid和euid,
+    此时如果程序文件没有设置set-user-id位,则子进程的uid,euid和父进程一致,而saved-set-user-id从euid复制,若设置了set-user-id位,则子进程的euid设置为文件所有者id,saved-set-user-id从euid复制.
+}}}
+
+==== 测试是否设置了(set-user-id)位和(set-group-id)位 ====
+- S_ISUID      //是否设置了set-user-ID位
+- S_ISGID      //是否设置了set-group-ID位
+
+<p style="background-color:orangered">设置了set-user-id或set-group-id位的`可执行文件`，会以文件所有者的用户ID(st_uid)或文件所有者的组ID(st_gid)身份行，而不是运行该文件的实际用户ID或实际组ID</p>
 
 进程每次打开，创建，删除一个文件时，内核就进行文件访问权限测试，将`进程`的有效用户ID(组ID）与要操作的文件所有者ID(组ID)进行对比，然后测试对应ID的文件访问权限。
 下图展示测试的执行步骤：
@@ -88,7 +96,7 @@ access函数始终使用文件`实际用户ID`和`实际组ID`为基础进行访
 umask函数用于设定进程使用的文件模式创建屏蔽字。更改进程的屏蔽字并不会影响父进程的屏蔽字
 
 ==== chown,fchown,lchown函数 ====
-更改文件的用户ID和组ID
+更改文件所有者的用户ID和组ID
 
 === 2. st_size ===
 表示以字节为单位的文件长度，此字段只对普通文件，目录文件和符号链接有意义。
@@ -99,13 +107,17 @@ umask函数用于设定进程使用的文件模式创建屏蔽字。更改进程
 === 3.软连接，硬连接 ===
 ==== 硬连接 ====
 link(）             //创建硬连接
-unlink(）           //删除硬连接
+unlink(）           //删除一个目录相,如果目录项是一个符号连接,则删除该符号连接,而不会删除由该连接引用的文件
 remove(）           //删除文件或目录
 rename(）           //重命令文件
+硬连接的限制:
+- 硬链接通常要求链接和文件位于同一个文件系统中
+- 只有超级用户才能创建指向目录的硬链接
 
 ==== 软连接 ====
 symlink(）          //创建软连接
 readlink(）         //读取软连接内容
+软链接没有硬链接的限制
 
 === 4. st_atime, st_ctime, st_mtime ===
 st_atime            //文件数据的最后访问时间
@@ -113,7 +125,7 @@ st_mtime            //文件数据的最后修改时间
 st_ctime            //文件状态信息（inode) 的最后修改时间
 
 ==== utime函数 ====
-更改文件的最后访问时间（st_atime) 或 文件的最后修改时间（st_mtime)。 
+更改文件的最后访问时间（st_atime) 或 文件内容的最后修改时间（st_mtime)。 
 函数不能更改文件状态信息的最后修改时间（st_ctime)，该字段会被自动更新。
 
 === 5. 目录操作 ===

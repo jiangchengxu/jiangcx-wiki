@@ -22,7 +22,14 @@
         set ruler                "显示所在的位置
 " }
 
-" GUI设置{
+" 按键映射 {
+        "jj映射为ESC
+        imap jj <Esc><Right>
+        "Ctrl-u映射为CAP
+        inoremap <C-u> <ESC>gUiwea
+" }
+
+" GUI设置 {
 if has("gui_running")
         set guioptions-=T
         set guioptions+=e
@@ -61,7 +68,7 @@ endif
 " 设置文件编码和文件格式 {
         "set fenc=utf-8
         "set encoding=utf-8
-        set fileencodings=ucs-bom,gb18030,utf-8,gbk,cp936,latin-1
+        set fileencodings=utf-8,gbk,cp936,latin-1
         "set fileformat=unix
         set fileformats=unix,dos,mac
 
@@ -224,13 +231,5 @@ endif
     " Command-T {
             set wildignore=*.o,*.obj,*.png,*.jpg,*.jpeg,.git
     " }
-
-" }
-
-" 按键映射 {
-
-        inoremap <F2> <ESC>u@.
-
-        imap jj <Esc><Right>
 
 " }

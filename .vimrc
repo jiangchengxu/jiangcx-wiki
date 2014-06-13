@@ -117,6 +117,7 @@ endif
 
     " Vundle {
 
+            " git clone https://github.com/gmarik/vundle.git  ~/.vim/bundle/vundle
             " Vundle 设置(必须) {
                     "set nocompatible    "required
                     filetype off        "required
@@ -132,7 +133,8 @@ endif
                     "格式1：Github上其他用户的仓库（非vim-scripts账户里的仓库，所以要加Github用户名）
                     "Bundle 'mattn/zencoding-vim'
                     "Bundle 'Lokaltog/vim-powerline'
-                    "Bundle 'kien/ctrlp.vim'
+                    Bundle 'kien/ctrlp.vim'
+                    Bundle 'charz/multi-cscope-db'
 
                     "格式2：vim-scripts里面的仓库，直接打仓库名即可。
                     "Bundle 'FuzzyFinder'
@@ -146,7 +148,6 @@ endif
                     Bundle 'calendar.vim--Matsumoto'
                     Bundle 'surround.vim'
                     Bundle 'repeat.vim' 
-                    Bundle 'a.vim'     
                     "Bundle 'prop.vim' 
                     "Bundle 'adt.vim' 
                     "Bundle 'robo'   
@@ -230,6 +231,10 @@ endif
 
     " Command-T {
             set wildignore=*.o,*.obj,*.png,*.jpg,*.jpeg,.git
+    " }
+
+    " ctrlp.vim {
+            set runtimepath^=~/.vim/bundle/ctrlp.vim 
     " }
 
 " }

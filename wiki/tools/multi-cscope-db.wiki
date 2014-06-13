@@ -1,0 +1,7 @@
+= multi-cscope-db 插件 = 
+
+[Ctrl+\+s]:查找光标上的function在哪里引用到
+[Ctrl+\+c]:查找光标上的function在哪里调用到
+[Ctrl+\+c]:查找光标上的function在哪里定义
+[Ctrl+\+t]:跳到下一个位置
+[Ctrl+\+o]:跳回上一个位置

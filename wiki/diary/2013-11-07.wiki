@@ -102,6 +102,8 @@ void pwritetest(){
 == dup和dup2函数 ==
 `dup`和`dup2`函数用于复制文件描述符，返回的新文件描述符与原有的文件描述符指向相同的文件表项，因而也共享同一文件状态标志，文件偏移量。
 
+`dup2`函数将已打开的oldfd复制为newfd,如果newfd与oldfd一样,则不进行复制,直接返回oldfd,dup2实现:[[http://www.oschina.net/code/explore/cvs-1.11.23/lib/dup2.c|dup2源码]]
+
 == sync,fsync,fdatasync函数 ==
 Linux文件写入过程:
 # 当将数据写入文件时，内核通常先将该数据`复制到其中的一个缓冲区`，如果该缓冲区尚未写满，则并不将其排入输出队列，

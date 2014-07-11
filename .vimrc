@@ -105,6 +105,8 @@
 " "系统及界面设定" {
         set nocompatible         "关闭兼容模式
         set background=dark      "设置文本颜色，必须在syntax enable前调用
+        filetype plugin on		 "启用自动补全
+        syntax enable			 "打开语法高亮
         set autoread             "文件改动时自动刷新
         set laststatus=2         "显示状态条
         set makeprg=make\ %:r.o  "设置make编译程序
@@ -119,10 +121,9 @@
         set foldmethod=indent	 "折叠方式
         set foldlevel=100		 "启动vim时不自动折叠
         set nu			         "显示行号
-        syntax enable			 "打开语法高亮
-        filetype plugin on		 "启用自动补全
         set shortmess=atI        "去掉欢迎界面
         set cmdheight=2          "设置命令行的高度
+        set helplang=cn          "设置帮助的语言类型
 " }
 
 " "按键映射" {
@@ -156,9 +157,9 @@
         "colorscheme desert     "经典配色方案
         "colorscheme molokai     "sublime text2配色方案
         if g:isGUI
-            colorscheme Tomorrow-Night-Eighties
+            "colorscheme Tomorrow-Night-Eighties
         else
-            colorscheme Tomorrow-Night-Eighties
+            "colorscheme Tomorrow-Night-Eighties
         endif
 " }
 
@@ -206,6 +207,7 @@
         au BufRead,BufNewFile *.dhtml setlocal ft=htmldjango
         au BufRead,BufNewFile *.sql   setlocal ft=mysql
         au BufRead,BufNewFile *.txt   setlocal ft=txt
+        au BufRead,BufNewFile *.java   setlocal ft=java
 " }
 
 " "插件设置" {
@@ -231,18 +233,25 @@
             " Vundle 插件仓库 {
                     "格式1：Github上其他用户的仓库（非vim-scripts账户里的仓库，所以要加Github用户名）
                     "Bundle 'mattn/zencoding-vim'
-                    "Bundle 'Lokaltog/vim-powerline'
-                    "Bundle 'kien/ctrlp.vim'
+                    Bundle 'kien/ctrlp.vim'
+                    Bundle 'tacahiroy/ctrlp-funky'
                     Bundle 'charz/multi-cscope-db'
-                    "Bundle 'fholgado/minibufexpl.vim'
+                    Bundle 'fholgado/minibufexpl.vim'
                     Bundle 'ervandew/supertab'
                     Bundle 'Yggdroot/indentLine'
                     Bundle 'Lokaltog/vim-powerline'
                     "Bundle 'vim-scripts/Java-Syntax-and-Folding'
+                    Bundle 'altercation/vim-colors-solarized'
+                    Bundle 'tomasr/molokai'
+                    Bundle 'jrosiek/vim-mark'
+                    Bundle 'asins/vimcdoc'
+                    Bundle 'Lokaltog/vim-easymotion'
+
 
                     "格式2：vim-scripts里面的仓库，直接打仓库名即可。
                     "Bundle 'FuzzyFinder'
                     Bundle 'vimwiki'
+                    "Bundle 'vimcn/vimwiki.cnx'
                     Bundle 'VimIM'
                     Bundle 'TagHighlight'
                     Bundle 'Command-T'
@@ -254,15 +263,17 @@
                     Bundle 'repeat.vim' 
                     "Bundle 'prop.vim' 
                     "Bundle 'adt.vim' 
-                    "Bundle 'robo'   
                     Bundle 'Auto-Pairs'
                     Bundle 'code_complete'
-                    "Bundle 'word_complete.vim'
                     Bundle 'a.vim'
+                    "Bundle 'vimcn/a.vim.cnx'
                     Bundle 'matchit.zip'
                     Bundle 'commentary.vim'
                     Bundle 'bufexplorer.zip'
+
                     Bundle 'cSyntaxAfter'
+                    "Bundle 'vimcn/cSyntaxAfter.cnx'
+                    "Bundle 'Mark--Ingo-Karkat'
                     "Bundle 'ZoomWin'
 
                     "格式3：非Github的Git仓库
@@ -398,12 +409,40 @@
             endif
     " }
 
-    " "Command-T" {
-            set wildignore=*.o,*.obj,*.png,*.jpg,*.jpeg,.git
-    " }
-
     " "ctrlp.vim" {
-            set runtimepath^=~/.vim/bundle/ctrlp.vim 
+            let g:ctrlp_map = '<leader>ff'
+            let g:ctrlp_cmd = 'CtrlP'
+            map <leader>fp :CtrlPMRU<CR>
+            if g:islinux
+                set wildignore+=*/tmp/*,*.so,*.swp,*.zip
+            else
+                set wildignore+=*\\tmp\\*,*.swp,*.zip,*.exe
+            endif
+            let g:ctrlp_custom_ignore = '\v[\/]\.(git|hg|svn|rvm|exe|so|dll)$'
+            let g:ctrlp_working_path_mode=0
+            let g:ctrlp_match_window_bottom=1
+            let g:ctrlp_max_height=15
+            let g:ctrlp_match_window_reversed=0
+            let g:ctrlp_mruf_max=500
+            let g:ctrlp_follow_symlinks=1
+            "set runtimepath^=~/.vim/bundle/ctrlp.vim 
+            "使用方法
+            "<c-f>, <c-b>切换模式
+            "<c-d> 在只搜索文件名和搜索路径名之间切换
+            "<c-r> 切换到regexp模式
+            "<c-j>, <c-k> 或者方向键切换结果列表
+            "<c-t>, <c-v>, <c-x> 在新的Tab页或竖向分割界面打开文件
+            "<c-n>, <c-p> 选择下一个/上一个弹出的字符串提示
+            "<c-y> 创建一个新文件
+            "<c-z> 标记/反标记多个文件并使用<c-o>打开文件
+    " }
+    "
+    " "ctrlp-funky" { "ctrlp 插件的辅助插件"
+            "  必须先安装ctrlp
+            let g:ctrlp_extensions = ['funky']
+            let g:ctrlp_funky_syntax_highlight = 1
+            nnoremap <leader>fu :CtrlPFunky<cr>
+            nnoremap <leader>fU :execute 'CtrlPFunky ' . expand('<cword>')<cr>
     " }
 
     " "eclm 设置" {
@@ -412,11 +451,20 @@
             nnoremap <silent> <buffer> <cr> :JavaSearchContext<cr>
     " }
 
+    "  "Nerdtree" {
+            let NERDTreeHighlightCursorline=1
+            let NERDTreeIgnore=[ '.pyc$', '.pyo$', '.obj$', '.o$', '.so$', '.egg$', '^.git$', '^.svn$', '^.hg$', '.out$' ]
+            let g:netrw_home='~/bak'
+    "  }
+
     " "minibufexpl.vim" {
-            "let g:miniBufExplMapWindowNavVim=1
-            "let g:miniBufExplMapWindowNavArrows=1
-            "let g:miniBufExplMapCTabSwitchBufs=1
-            "let g:miniBufExplModSelTarget=1
+            let g:miniBufExplMapWindowNavVim=1
+            let g:miniBufExplMapWindowNavArrows=1
+            let g:miniBufExplMapCTabSwitchBufs=1
+            let g:miniBufExplModSelTarget=1
+            let g:miniBufExplCycleArround=1
+            map <leader>bn :MBEbn<cr>
+            map <leader>bN :MBEbp<cr>
     " }
 
     " "bufexplorer.vim" {  "轻松的在缓存中切换(相当于另一种多个文件间的切换方式)"
@@ -432,11 +480,38 @@
     " "powerline.vim" { "状态栏插件,更好的状态栏效果"
     " }
     
+    " "supertab" {
+            let g:SuperTabRetainCompletionType=2
+            let g:SuperTabDefaultCompletionType="<C-X><C-O>"
+    " }
+
     " "ZoomWin插件配置" {  "用于分割窗口的最大化与还原"
             " 常规模式下使用快捷键<c-w>o 在最大化与还原间切换
-            "是 
+            " 使用时有错误 
     " }
 
     " "vim-scripts/Java-Syntax-and-Folding" { "用于java语法和目录高亮"
+            " 使用时有错误 
+    " }
+
+    " "vim-colors-solarized" { "主题solarized"
+            "colorscheme solarized
+            if g:islinux
+                let g:solarized_termcolors=256
+            endif
+            let g:solarized_termtrans=1
+            let g:solarized_contrast='normal'
+            let g:solarized_visibility='normal'
+    " }
+
+    " "molokai" { "主题 molokai"
+            colorscheme molokai
+            let g:molokai_original = 1
+    " }
+    "
+    " "asins/vimcdoc" { "插件的中文帮助文档"
+    " }
+    "
+    " "Lokaltog/vim-easymotion" {  "快速查找"
     " }
 " }

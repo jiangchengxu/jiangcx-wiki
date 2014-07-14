@@ -35,7 +35,6 @@
                 Bundle 'Lokaltog/vim-easymotion'
                 Bundle 'asins/vim-colors'
 
-
                 "格式2：vim-scripts里面的仓库，直接打仓库名即可。
                 "Bundle 'FuzzyFinder'
                 Bundle 'vimwiki'
@@ -43,7 +42,6 @@
                 Bundle 'VimIM'
                 Bundle 'TagHighlight'
                 Bundle 'Command-T'
-                "Bundle 'DrawIt'
                 Bundle 'Tagbar'
                 Bundle 'The-NERD-tree'
                 Bundle 'calendar.vim--Matsumoto'

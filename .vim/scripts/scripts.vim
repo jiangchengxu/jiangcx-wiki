@@ -22,12 +22,9 @@
                 "Bundle 'mattn/zencoding-vim'
                 Bundle 'kien/ctrlp.vim'
                 Bundle 'tacahiroy/ctrlp-funky'
-                "Bundle 'charz/multi-cscope-db'
                 Bundle 'fholgado/minibufexpl.vim'
                 Bundle 'ervandew/supertab'
-                Bundle 'Yggdroot/indentLine'
                 Bundle 'Lokaltog/vim-powerline'
-                "Bundle 'vim-scripts/Java-Syntax-and-Folding'
                 Bundle 'altercation/vim-colors-solarized'
                 Bundle 'tomasr/molokai'
                 Bundle 'jrosiek/vim-mark'
@@ -36,9 +33,7 @@
                 Bundle 'asins/vim-colors'
 
                 "格式2：vim-scripts里面的仓库，直接打仓库名即可。
-                "Bundle 'FuzzyFinder'
                 Bundle 'vimwiki'
-                "Bundle 'vimcn/vimwiki.cnx'
                 Bundle 'VimIM'
                 Bundle 'TagHighlight'
                 Bundle 'Command-T'
@@ -52,14 +47,13 @@
                 Bundle 'Auto-Pairs'
                 Bundle 'code_complete'
                 Bundle 'a.vim'
-                "Bundle 'vimcn/a.vim.cnx'
                 Bundle 'matchit.zip'
                 Bundle 'commentary.vim'
                 Bundle 'bufexplorer.zip'
                 Bundle 'MatchTag'
+                Bundle 'std_c.zip'
 
                 Bundle 'cSyntaxAfter'
-                "Bundle 'vimcn/cSyntaxAfter.cnx'
                 "Bundle 'Mark--Ingo-Karkat'
                 "Bundle 'ZoomWin'
 
@@ -105,8 +99,8 @@
 " }
 
 " "Ctags" {
-        set tags=tags;
         if g:islinux
+            set tags=./tags
             set tags+=~/.vim/systags
         else
             set tags+=$VIM/vimfiles/systags
@@ -255,8 +249,8 @@
         let g:miniBufExplMapCTabSwitchBufs=1
         let g:miniBufExplModSelTarget=1
         let g:miniBufExplCycleArround=1
-        map <s-h> :MBEbn<cr>
-        map <s-j> :MBEbp<cr>
+        map <s-l> :MBEbn<cr>
+        map <s-h> :MBEbp<cr>
 " }
 
 " "bufexplorer.vim" {  "轻松的在缓存中切换(相当于另一种多个文件间的切换方式)"
@@ -310,4 +304,11 @@
 " }
 
 " "MatchTag" { " HTML标签高亮配对
+" }
+
+" "std_c.zip" { " 用于增强C语法高亮"
+        let c_cpp_comments=0
+" }
+"
+" "jrosiek/vim-mark" { "<leader>m 高亮选中的单词"
 " }

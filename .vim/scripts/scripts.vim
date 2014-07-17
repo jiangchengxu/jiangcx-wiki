@@ -36,7 +36,7 @@
                 Bundle 'vimwiki'
                 Bundle 'VimIM'
                 Bundle 'TagHighlight'
-                Bundle 'Command-T'
+                "Bundle 'Command-T'
                 Bundle 'Tagbar'
                 Bundle 'The-NERD-tree'
                 Bundle 'calendar.vim--Matsumoto'
@@ -101,6 +101,7 @@
 " "Ctags" {
         if g:islinux
             set tags=./tags
+            set tags+=$ANDROID_SRC/cscope/tags
             set tags+=~/.vim/systags
         else
             set tags+=$VIM/vimfiles/systags
@@ -170,19 +171,25 @@
             if filereadable("cscope.out")
                 cs add cscope.out
             "否则添加环境中所指定的数据库
-            elseif $CSCOPE_DB != ""
-                cs add $CSCOPE_DB
+            elseif $ANDROID_SRC != ""
+                cs add $ANDROID_SRC/.cscope/cscope.out
+            else
+                let cscope_file=findfile("cscope.out", ".;")
+                let cscope_pre=matchstr(cscope_file, ".*/")
+                if !empty(cscope_file) && filereadable(cscope_file)
+                    exe "cs add" cscope_file cscope_pre
+                endif
             endif
             set cscopeverbose
             "快捷键设置
-            nmap <C-\>s :cs find s <C-R>=expand("<cword>")<CR><CR>  "查找本C符号
-            nmap <C-\>g :cs find g <C-R>=expand("<cword>")<CR><CR>  "查找本定义" 
-            nmap <C-\>c :cs find c <C-R>=expand("<cword>")<CR><CR>  "查找调用本函数的函数" 
-            nmap <C-\>t :cs find t <C-R>=expand("<cword>")<CR><CR>  "查找本字符串"
-            nmap <C-\>e :cs find e <C-R>=expand("<cword>")<CR><CR>  "查找本egrep模式"
-            nmap <C-\>f :cs find f <C-R>=expand("<cfile>")<CR><CR>  "查找本文件"
-            nmap <C-\>i :cs find i <C-R>=expand("<cfile>")<CR>$<CR> "查找包含本文件的文件" 
-            nmap <C-\>d :cs find d <C-R>=expand("<cword>")<CR><CR>  "查找本函数调用的函数" 
+            nmap <leader><leader>s :cs find s <C-R>=expand("<cword>")<CR><CR>  "查找本C符号
+            nmap <leader><leader>g :cs find g <C-R>=expand("<cword>")<CR><CR>  "查找本定义" 
+            nmap <leader><leader>c :cs find c <C-R>=expand("<cword>")<CR><CR>  "查找调用本函数的函数" 
+            nmap <leader><leader>t :cs find t <C-R>=expand("<cword>")<CR><CR>  "查找本字符串"
+            nmap <leader><leader>e :cs find e <C-R>=expand("<cword>")<CR><CR>  "查找本egrep模式"
+            nmap <leader><leader>f :cs find f <C-R>=expand("<cfile>")<CR><CR>  "查找本文件"
+            nmap <leader><leader>i :cs find i <C-R>=expand("<cfile>")<CR>$<CR> "查找包含本文件的文件" 
+            nmap <leader><leader>d :cs find d <C-R>=expand("<cword>")<CR><CR>  "查找本函数调用的函数" 
         endif
 " }
 
@@ -198,8 +205,8 @@
         let g:ctrlp_working_path_mode = 'ra'
         "let g:ctrlp_custom_ignore = '\v[\/]\.(git|hg|svn|rvm|exe|so|dll)$'
         let g:ctrlp_custom_ignore = {
-            \'dir': '\v[\/]\.(git|hg|svn|cache|Trash)',
-            \'file': '\v\.(log|jpg|png|jpeg|exe|so|dll|pyc|swf|psd|db)$'
+            \'dir': '\v[\/]\.(git|hg|svn|cache|Trash|cscope|out)',
+            \'file': '\v\.(log|jpg|png|jpeg|exe|so|dll|pyc|swf|psd|db|out)$'
             \}
         let g:ctrlp_working_path_mode=0
         let g:ctrlp_match_window_bottom=1
@@ -237,7 +244,7 @@
         map <F7> :NERDTreeToggle<CR>
         let NERDChristmasTree=1
         let NERDTreeHighlightCursorline=1
-        let NERDTreeIgnore=[ '.pyc$', '.pyo$', '.obj$', '.o$', '.so$', '.egg$', '^.git$', '^.svn$', '^.hg$', '.out$' ]
+        let NERDTreeIgnore=[ '.pyc$', '.pyo$', '.obj$', '.o$', '.so$', '.egg$', '^.git$', '^.svn$', '^.hg$', '.out$', '^.cscope$' ]
         let g:netrw_home='~/bak'
         let NERDTreeShowLineNumbers=0
         let NERDTreeShowBookmarks=1

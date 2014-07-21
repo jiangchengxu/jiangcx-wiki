@@ -1,0 +1,11 @@
+#!/bin/sh
+
+if [ -z "$1" ]
+then
+echo "need base commit ID as parameter 1!!"
+exit 1
+fi
+
+git log "$1"..HEAD --pretty="%n%s:%b" --name-only
+
+

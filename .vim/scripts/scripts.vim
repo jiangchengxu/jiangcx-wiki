@@ -244,7 +244,7 @@
         map <F7> :NERDTreeToggle<CR>
         let NERDChristmasTree=1
         let NERDTreeHighlightCursorline=1
-        let NERDTreeIgnore=[ '.pyc$', '.pyo$', '.obj$', '.o$', '.so$', '.egg$', '^.git$', '^.svn$', '^.hg$', '.out$', '^.cscope$' ]
+        let NERDTreeIgnore=[ '.pyc$', '.pyo$', '.obj$', '.o$', '.so$', '.egg$', '^.git$', '^.svn$', '^.hg$', '^.cscope$' ]
         let g:netrw_home='~/bak'
         let NERDTreeShowLineNumbers=0
         let NERDTreeShowBookmarks=1
@@ -256,6 +256,7 @@
         let g:miniBufExplMapCTabSwitchBufs=1
         let g:miniBufExplModSelTarget=1
         let g:miniBufExplCycleArround=1
+        let g:miniBufExplorerMoreThanOne=0
         map <s-l> :MBEbn<cr>
         map <s-h> :MBEbp<cr>
 " }

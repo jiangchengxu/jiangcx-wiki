@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if [ ! -d $ANDROID_SRC ]; then
+    echo "no ANDROID_SRC set"
+    echo "please set ANDROID_SRC at your .bashrc file"
+    exit 1
+fi
+
+TARGET=$1
+
+cd $ANDROID_SRC
+adb remount && adb push out/target/product/haier82_wet_qd_td/system/$target

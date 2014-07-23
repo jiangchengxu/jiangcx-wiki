@@ -227,4 +227,8 @@
         "新建的文件,刚打开的文件不折叠
         autocmd BufNewFile,BufRead * setlocal nofoldenable
 " }
+"
+" "缩写" {
+        :iab @h <C-R>=strftime("%F")<CR>  提交人:姜成绪 审核人:周华
+" }
 

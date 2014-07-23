@@ -190,6 +190,9 @@
             nmap <leader><leader>f :cs find f <C-R>=expand("<cfile>")<CR><CR>  "查找本文件"
             nmap <leader><leader>i :cs find i <C-R>=expand("<cfile>")<CR>$<CR> "查找包含本文件的文件" 
             nmap <leader><leader>d :cs find d <C-R>=expand("<cword>")<CR><CR>  "查找本函数调用的函数" 
+            nmap <leader><leader>n :cn<cr>
+            nmap <leader><leader>N :cp<cr>
+            nmap <leader><leader>l :cl<cr>
         endif
 " }
 
